@@ -1,6 +1,7 @@
 use cgmath::Quaternion;
 use pollster::FutureExt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -11,8 +12,9 @@ use winit::window::{Window, WindowId};
 use crate::texture;
 
 const MAX_INSTANCES: u64 = 100;
-const INSTANCE_WIDTH: f32 = 0.1;
-const INSTANCE_HEIGTH: f32 = 0.1;
+const INSTANCE_WIDTH: f32 = 0.05;
+const INSTANCE_HEIGTH: f32 = 0.05;
+const GRAVITATIONAL_CONSTANT: f32 = 4.0;
 
 const VERTICES: &[Vertex] = &[
     // Changed
@@ -56,6 +58,7 @@ pub struct Vertex {
 pub struct Instance {
     position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
+    speed: cgmath::Vector2<f32>,
 }
 
 #[repr(C)]
@@ -149,12 +152,14 @@ pub struct State<'a> {
     num_indices: u32,
 
     diffuse_bind_group: wgpu::BindGroup,
+    #[allow(dead_code)]
     diffuse_texture: texture::Texture,
 
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
 
     space_pressed: bool,
+    previous_time: Instant,
 }
 
 impl<'a> State<'a> {
@@ -347,6 +352,7 @@ impl<'a> State<'a> {
             instances,
             instance_buffer,
             space_pressed: false,
+            previous_time: Instant::now(),
         }
     }
 
@@ -363,7 +369,23 @@ impl<'a> State<'a> {
         }
     }
 
-    fn update(&mut self) {}
+    fn update(&mut self) {
+        let delta_time = Instant::now() - self.previous_time;
+
+        self.instances.iter_mut().for_each(|instance| {
+            instance.position.x += instance.speed.x * delta_time.as_secs_f32();
+            instance.position.y += instance.speed.y * delta_time.as_secs_f32();
+
+            instance.speed.y += -GRAVITATIONAL_CONSTANT * delta_time.as_secs_f32();
+
+            if instance.position.y <= -1.0 {
+                instance.speed.y = 0.0;
+            }
+        });
+        self.previous_time = Instant::now();
+
+        self.update_instance_buffer();
+    }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         println!("Rendering...");
@@ -424,7 +446,9 @@ impl<'a> State<'a> {
         }
 
         self.instances.push(instance);
-
+        self.update_instance_buffer();
+    }
+    fn update_instance_buffer(&mut self) {
         let instance_data = self
             .instances
             .iter()
@@ -468,6 +492,7 @@ impl Instance {
         Instance {
             position: cgmath::Vector3 { x, y, z },
             rotation: rotation.unwrap_or(Quaternion::new(0.0, 0.0, 0.0, 0.0)),
+            speed: cgmath::Vector2 { x: 0.0, y: 0.0 },
         }
     }
 
