@@ -1,27 +1,27 @@
-use cgmath::prelude::*;
+use cgmath::Quaternion;
 use pollster::FutureExt;
-use std::error::Error;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
 use crate::texture;
 
-const NUM_INSTANCES_PER_ROW: u32 = 100;
-const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(0.2, 0.2, 0.0);
+const MAX_INSTANCES: u64 = 100;
+const INSTANCE_WIDTH: f32 = 0.1;
+const INSTANCE_HEIGTH: f32 = 0.1;
 
 const VERTICES: &[Vertex] = &[
     // Changed
     Vertex {
-        position: [0.1, 0.1, 0.0],
+        position: [INSTANCE_WIDTH, INSTANCE_HEIGTH, 0.0],
         tex_coords: [1.0, 1.0],
     }, // A
     Vertex {
-        position: [0.0, 0.1, 0.0],
+        position: [0.0, INSTANCE_HEIGTH, 0.0],
         tex_coords: [0.0, 1.0],
     }, // B
     Vertex {
@@ -29,7 +29,7 @@ const VERTICES: &[Vertex] = &[
         tex_coords: [0.0, 0.0],
     }, // C
     Vertex {
-        position: [0.1, 0.0, 0.0],
+        position: [INSTANCE_WIDTH, 0.0, 0.0],
         tex_coords: [1.0, 0.0],
     }, // D
 ];
@@ -39,17 +39,9 @@ const INDICES: &[u16] = &[
     2, 3, 0, // Polygon1
 ];
 
-pub async fn create_window() -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::new().unwrap();
-
-    let mut window_state = StateApplication::default();
-    event_loop.run_app(&mut window_state)?;
-    Ok(())
-}
-
 #[derive(Default)]
-struct StateApplication<'a> {
-    state: Option<State<'a>>,
+pub struct StateApplication<'a> {
+    pub state: Option<State<'a>>,
 }
 
 #[repr(C)]
@@ -103,6 +95,32 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
                 } => {
                     if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::Escape) {
                         event_loop.exit();
+                    } else if event.physical_key
+                        == PhysicalKey::Code(winit::keyboard::KeyCode::Space)
+                    {
+                        self.state.as_mut().unwrap().space_pressed = true;
+                        dbg!("space pressed");
+                    }
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    let state = self.state.as_mut().unwrap();
+
+                    if state.space_pressed {
+                        state.space_pressed = false;
+                        dbg!(&position);
+                        dbg!(&state.size);
+                        state.add_instance(Instance::new(
+                            (position.x as f32 - (state.size.width as f32 * 0.5))
+                                / state.size.width as f32
+                                * 2.0
+                                - INSTANCE_WIDTH * 0.5,
+                            (position.y as f32 - (state.size.height as f32 * 0.5))
+                                / (0.0 - state.size.height as f32)
+                                * 2.0
+                                - INSTANCE_HEIGTH * 0.5,
+                            0.0,
+                            None,
+                        ));
                     }
                 }
                 WindowEvent::RedrawRequested => {
@@ -117,7 +135,7 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
 }
 
 #[derive(Debug)]
-struct State<'a> {
+pub struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -135,6 +153,8 @@ struct State<'a> {
 
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
+
+    space_pressed: bool,
 }
 
 impl<'a> State<'a> {
@@ -302,33 +322,13 @@ impl<'a> State<'a> {
         });
         let num_indices = INDICES.len().try_into().unwrap();
 
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|y| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let position = cgmath::Vector3 {
-                        x: x as f32 * INSTANCE_DISPLACEMENT.x,
-                        y: y as f32 * INSTANCE_DISPLACEMENT.y,
-                        z: 0.0,
-                    };
-                    let rotation = if position.is_zero() {
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                    };
+        let instances = Vec::new();
 
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: std::mem::size_of::<InstanceRaw>() as u64 * MAX_INSTANCES,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         Self {
@@ -346,6 +346,7 @@ impl<'a> State<'a> {
             diffuse_texture,
             instances,
             instance_buffer,
+            space_pressed: false,
         }
     }
 
@@ -365,6 +366,7 @@ impl<'a> State<'a> {
     fn update(&mut self) {}
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        println!("Rendering...");
         let output = self.surface.get_current_texture()?;
 
         let view = output
@@ -414,6 +416,30 @@ impl<'a> State<'a> {
 
         Ok(())
     }
+
+    pub fn add_instance(&mut self, instance: Instance) {
+        if self.instances.len() as u64 >= MAX_INSTANCES {
+            println!("Max  number of instances reached!");
+            return;
+        }
+
+        self.instances.push(instance);
+
+        let instance_data = self
+            .instances
+            .iter()
+            .map(Instance::to_raw)
+            .collect::<Vec<_>>();
+
+        self.queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&instance_data),
+        );
+
+        self.queue.submit([]);
+        self.window().request_redraw();
+    }
 }
 
 impl Vertex {
@@ -438,6 +464,13 @@ impl Vertex {
 }
 
 impl Instance {
+    pub fn new(x: f32, y: f32, z: f32, rotation: Option<Quaternion<f32>>) -> Self {
+        Instance {
+            position: cgmath::Vector3 { x, y, z },
+            rotation: rotation.unwrap_or(Quaternion::new(0.0, 0.0, 0.0, 0.0)),
+        }
+    }
+
     fn to_raw(&self) -> InstanceRaw {
         InstanceRaw {
             model: (cgmath::Matrix4::from_translation(self.position)
