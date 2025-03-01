@@ -2,7 +2,7 @@ use std::error::Error;
 
 use rendering::Instance;
 
-mod particle;
+mod physics;
 mod rendering;
 mod texture;
 

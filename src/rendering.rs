@@ -1,7 +1,7 @@
 use cgmath::Quaternion;
 use pollster::FutureExt;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -12,18 +12,17 @@ use winit::window::{Window, WindowId};
 use crate::texture;
 
 const MAX_INSTANCES: u64 = 100;
-const INSTANCE_WIDTH: f32 = 0.05;
-const INSTANCE_HEIGTH: f32 = 0.05;
-const GRAVITATIONAL_CONSTANT: f32 = 4.0;
+pub const INSTANCE_WIDTH: f32 = 0.1;
+pub const INSTANCE_HEIGTH: f32 = 0.1;
 
 const VERTICES: &[Vertex] = &[
     // Changed
     Vertex {
-        position: [INSTANCE_WIDTH, INSTANCE_HEIGTH, 0.0],
+        position: [INSTANCE_WIDTH * 0.5, INSTANCE_HEIGTH * 0.5, 0.0],
         tex_coords: [1.0, 1.0],
     }, // A
     Vertex {
-        position: [0.0, INSTANCE_HEIGTH, 0.0],
+        position: [0.0, INSTANCE_HEIGTH * 0.5, 0.0],
         tex_coords: [0.0, 1.0],
     }, // B
     Vertex {
@@ -31,7 +30,7 @@ const VERTICES: &[Vertex] = &[
         tex_coords: [0.0, 0.0],
     }, // C
     Vertex {
-        position: [INSTANCE_WIDTH, 0.0, 0.0],
+        position: [INSTANCE_WIDTH * 0.5, 0.0, 0.0],
         tex_coords: [1.0, 0.0],
     }, // D
 ];
@@ -54,11 +53,11 @@ pub struct Vertex {
     pub tex_coords: [f32; 2],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Instance {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Quaternion<f32>,
-    speed: cgmath::Vector2<f32>,
+    pub position: cgmath::Vector3<f32>,
+    pub rotation: cgmath::Quaternion<f32>,
+    pub speed: cgmath::Vector2<f32>,
 }
 
 #[repr(C)]
@@ -70,7 +69,7 @@ struct InstanceRaw {
 impl<'a> ApplicationHandler for StateApplication<'a> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = event_loop
-            .create_window(Window::default_attributes().with_title("Hello!"))
+            .create_window(Window::default_attributes().with_title("WGPU test"))
             .unwrap();
         self.state = Some(State::new(window).block_on());
     }
@@ -96,6 +95,10 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
                     event,
                     is_synthetic: _,
                 } => {
+                    if !event.state.is_pressed() {
+                        return;
+                    }
+
                     if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::Escape) {
                         event_loop.exit();
                     } else if event.physical_key
@@ -110,8 +113,6 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
 
                     if state.space_pressed {
                         state.space_pressed = false;
-                        dbg!(&position);
-                        dbg!(&state.size);
                         state.add_instance(Instance::new(
                             (position.x as f32 - (state.size.width as f32 * 0.5))
                                 / state.size.width as f32
@@ -372,23 +373,13 @@ impl<'a> State<'a> {
     fn update(&mut self) {
         let delta_time = Instant::now() - self.previous_time;
 
-        self.instances.iter_mut().for_each(|instance| {
-            instance.position.x += instance.speed.x * delta_time.as_secs_f32();
-            instance.position.y += instance.speed.y * delta_time.as_secs_f32();
-
-            instance.speed.y += -GRAVITATIONAL_CONSTANT * delta_time.as_secs_f32();
-
-            if instance.position.y <= -1.0 {
-                instance.speed.y = 0.0;
-            }
-        });
+        crate::physics::update_instances(&mut self.instances, delta_time);
         self.previous_time = Instant::now();
 
         self.update_instance_buffer();
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        println!("Rendering...");
         let output = self.surface.get_current_texture()?;
 
         let view = output
