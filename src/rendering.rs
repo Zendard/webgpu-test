@@ -1,4 +1,4 @@
-use cgmath::{Quaternion, SquareMatrix};
+use cgmath::Rotation3;
 use pollster::FutureExt;
 use std::sync::Arc;
 use wgpu::util::{DeviceExt, RenderEncoder};
@@ -9,33 +9,65 @@ use winit::window::{Window, WindowId};
 
 use crate::texture;
 
-const MAX_INSTANCES: u64 = 100;
-pub const INSTANCE_WIDTH: f32 = 0.1;
-pub const INSTANCE_HEIGTH: f32 = 0.1;
+const INSTANCE_WIDTH: f32 = 1.0;
+const INSTANCE_HEIGTH: f32 = 1.0;
 
+// Cube: [EFGH]
+//       [ABCD]
 const VERTICES: &[Vertex] = &[
-    // Changed
-    Vertex {
-        position: [INSTANCE_WIDTH * 0.5, INSTANCE_HEIGTH * 0.5, 0.0],
-        tex_coords: [1.0, 1.0],
-    }, // A
-    Vertex {
-        position: [0.0, INSTANCE_HEIGTH * 0.5, 0.0],
-        tex_coords: [0.0, 1.0],
-    }, // B
     Vertex {
         position: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
+    }, // A
+    Vertex {
+        position: [INSTANCE_WIDTH, 0.0, 0.0],
+        tex_coords: [0.0, 1.0],
+    }, // B
+    Vertex {
+        position: [INSTANCE_WIDTH, 0.0, INSTANCE_WIDTH],
+        tex_coords: [1.0, 1.0],
     }, // C
     Vertex {
-        position: [INSTANCE_WIDTH * 0.5, 0.0, 0.0],
+        position: [0.0, 0.0, INSTANCE_WIDTH],
         tex_coords: [1.0, 0.0],
     }, // D
+    Vertex {
+        position: [0.0, INSTANCE_HEIGTH, 0.0],
+        tex_coords: [1.0, 1.0],
+    }, // E
+    Vertex {
+        position: [INSTANCE_WIDTH, INSTANCE_HEIGTH, 0.0],
+        tex_coords: [0.0, 1.0],
+    }, // F
+    Vertex {
+        position: [INSTANCE_WIDTH, INSTANCE_HEIGTH, INSTANCE_WIDTH],
+        tex_coords: [0.0, 0.0],
+    }, // G
+    Vertex {
+        position: [0.0, INSTANCE_HEIGTH, INSTANCE_WIDTH],
+        tex_coords: [1.0, 0.0],
+    }, // H
 ];
 
 const INDICES: &[u16] = &[
-    0, 1, 2, // Polygon0
-    2, 3, 0, // Polygon1
+    // ABCD
+    0, 1, 2, // ABC
+    2, 3, 0, // CDA
+    // HGFE
+    7, 6, 5, // HGF
+    5, 4, 7, // FEH
+    // AEFB
+    0, 4, 5, // AEF
+    5, 1, 0, // FBA
+    // BFGC
+    1, 5, 6, // BFG
+    6, 2, 1, // GCB
+    // CGHD
+    2, 6, 7, // CGH
+    7, 3, 2, // HDC
+    // DHEA
+    3, 7, 4, // DHE
+    4, 0, 3, // EAD
 ];
 
 #[derive(Default)]
@@ -49,19 +81,6 @@ pub struct Vertex {
     pub position: [f32; 3],
     // pub color: [f32; 3],
     pub tex_coords: [f32; 2],
-}
-
-#[derive(Debug, Clone)]
-pub struct Instance {
-    pub position: cgmath::Vector3<f32>,
-    pub rotation: cgmath::Quaternion<f32>,
-    pub speed: cgmath::Vector2<f32>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct InstanceRaw {
-    model: [[f32; 4]; 4],
 }
 
 impl<'a> ApplicationHandler for StateApplication<'a> {
@@ -186,9 +205,13 @@ impl<'a> State<'a> {
         surface.configure(&device, &config);
 
         let diffuse_bytes = include_bytes!("textures/cobblestone.png");
-        let diffuse_texture =
-            crate::texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png")
-                .unwrap();
+        let diffuse_texture = crate::texture::Texture::from_bytes(
+            &device,
+            &queue,
+            diffuse_bytes,
+            "textures/cobblestone.png",
+        )
+        .unwrap();
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -244,15 +267,6 @@ impl<'a> State<'a> {
             usage: wgpu::BufferUsages::INDEX,
         });
         let num_indices = INDICES.len().try_into().unwrap();
-
-        let instances = Vec::new();
-
-        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Instance Buffer"),
-            size: std::mem::size_of::<InstanceRaw>() as u64 * MAX_INSTANCES,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
 
         let camera = Camera {
             eye: (0.0, 2.0, 0.0).into(),
@@ -342,6 +356,81 @@ impl<'a> State<'a> {
             cache: None,
         });
 
+        let instances: Vec<Instance> = vec![
+            Instance {
+                position: cgmath::Vector3 {
+                    x: 2.0,
+                    y: 1.0,
+                    z: 2.0,
+                },
+                rotation: cgmath::Quaternion::from_axis_angle(
+                    cgmath::Vector3::unit_z(),
+                    cgmath::Deg(0.0),
+                ),
+            },
+            Instance {
+                position: cgmath::Vector3 {
+                    x: -2.0,
+                    y: 1.0,
+                    z: 2.0,
+                },
+                rotation: cgmath::Quaternion::from_axis_angle(
+                    cgmath::Vector3::unit_z(),
+                    cgmath::Deg(0.0),
+                ),
+            },
+            Instance {
+                position: cgmath::Vector3 {
+                    x: -2.0,
+                    y: 3.0,
+                    z: 2.0,
+                },
+                rotation: cgmath::Quaternion::from_axis_angle(
+                    cgmath::Vector3::unit_z(),
+                    cgmath::Deg(0.0),
+                ),
+            },
+            Instance {
+                position: cgmath::Vector3 {
+                    x: -2.0,
+                    y: 3.0,
+                    z: 2.0,
+                },
+                rotation: cgmath::Quaternion::from_axis_angle(
+                    cgmath::Vector3::unit_z(),
+                    cgmath::Deg(0.0),
+                ),
+            },
+            Instance {
+                position: cgmath::Vector3 {
+                    x: -2.0,
+                    y: -1.0,
+                    z: 2.0,
+                },
+                rotation: cgmath::Quaternion::from_axis_angle(
+                    cgmath::Vector3::unit_z(),
+                    cgmath::Deg(0.0),
+                ),
+            },
+            Instance {
+                position: cgmath::Vector3 {
+                    x: 2.0,
+                    y: -1.0,
+                    z: 2.0,
+                },
+                rotation: cgmath::Quaternion::from_axis_angle(
+                    cgmath::Vector3::unit_z(),
+                    cgmath::Deg(0.0),
+                ),
+            },
+        ];
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
         Self {
             surface,
             device,
@@ -355,12 +444,12 @@ impl<'a> State<'a> {
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
-            instances,
-            instance_buffer,
             camera,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            instances,
+            instance_buffer,
         }
     }
 
@@ -413,15 +502,13 @@ impl<'a> State<'a> {
         render_pass.set_pipeline(&self.render_pipeline);
 
         render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-
         render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
 
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
         render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
-        // render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         drop(render_pass);
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -455,7 +542,7 @@ impl Camera {
         let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
 
-        return OPENGL_TO_WGPU_MATRIX * proj * view;
+        OPENGL_TO_WGPU_MATRIX * proj * view
     }
 }
 
@@ -499,15 +586,13 @@ impl Vertex {
     }
 }
 
-impl Instance {
-    pub fn new(x: f32, y: f32, z: f32, rotation: Option<Quaternion<f32>>) -> Self {
-        Instance {
-            position: cgmath::Vector3 { x, y, z },
-            rotation: rotation.unwrap_or(Quaternion::new(0.0, 0.0, 0.0, 0.0)),
-            speed: cgmath::Vector2 { x: 0.0, y: 0.0 },
-        }
-    }
+#[derive(Debug)]
+struct Instance {
+    position: cgmath::Vector3<f32>,
+    rotation: cgmath::Quaternion<f32>,
+}
 
+impl Instance {
     fn to_raw(&self) -> InstanceRaw {
         InstanceRaw {
             model: (cgmath::Matrix4::from_translation(self.position)
@@ -517,22 +602,21 @@ impl Instance {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct InstanceRaw {
+    model: [[f32; 4]; 4],
+}
+
 impl InstanceRaw {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            // We need to switch from using a step mode of Vertex to Instance
-            // This means that our shaders will only change to use the next
-            // instance when the shader starts processing a new instance
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We'll have to reassemble the mat4 in the shader.
                 wgpu::VertexAttribute {
                     offset: 0,
-                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials, we'll
-                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5, not conflict with them later
                     shader_location: 5,
                     format: wgpu::VertexFormat::Float32x4,
                 },
