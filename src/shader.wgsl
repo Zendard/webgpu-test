@@ -21,6 +21,8 @@ struct VertexOutput {
   @location(0) tex_coords: vec2<f32>,
 };
 
+
+
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let model_matrix = mat4x4<f32>(
@@ -34,6 +36,40 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.tex_coords = model.tex_coords;
     out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
     return out;
+}
+
+override block_coords =
+array<vec3<f32>>(
+    vec3(1, 0, 0), vec3(1, 0, 1), vec3(0, 0, 1),
+    vec3(0, 0, 1), vec3(0, 0, 0), vec3(1, 0, 0),
+    vec3(1, 1, 1), vec3(1, 1, 0), vec3(0, 1, 0),
+    vec3(0, 1, 0), vec3(0, 1, 1), vec3(1, 1, 1),
+    vec3(0, 0, 0), vec3(0, 1, 0), vec3(1, 1, 0),
+    vec3(1, 1, 0), vec3(1, 0, 0), vec3(0, 0, 0),
+    vec3(1, 0, 0), vec3(1, 1, 0), vec3(1, 1, 1),
+    vec3(1, 1, 1), vec3(1, 0, 1), vec3(1, 0, 0),
+    vec3(1, 0, 1), vec3(1, 1, 1), vec3(0, 1, 1),
+    vec3(0, 1, 1), vec3(0, 0, 1), vec3(1, 0, 1),
+    vec3(0, 0, 1), vec3(0, 1, 1), vec3(0, 1, 0),
+    vec3(0, 1, 0), vec3(0, 0, 0), vec3(0, 0, 1),
+);
+
+override block_tex_coords= array<vec2<f32>>(
+    vec2(1, 0),
+    vec2(1, 1),
+    vec2(0, 1),
+    vec2(0, 1),
+    vec2(0, 0),
+    vec2(1, 0),
+);
+
+
+@vertex
+fn vs_block(@location(0) position: vec3<f32>, @builtin(vertex_index) index: u8) -> VertexOutput {
+    let coords = var out = VertexOutput;
+    out.clip_position = camera.view_proj * vec4<f32>(block_coords[index], 1.0)
+    out.tex_coords = block_tex_coords[index % 6]
+    return out
 }
 
 @group(0) @binding(0)

@@ -50,12 +50,12 @@ const VERTICES: &[Vertex] = &[
 ];
 
 const INDICES: &[u16] = &[
-    // ABCD
-    0, 1, 2, // ABC
-    2, 3, 0, // CDA
-    // HGFE
-    7, 6, 5, // HGF
-    5, 4, 7, // FEH
+    // BCDA
+    1, 2, 3, // BCD
+    3, 0, 1, // DAB
+    // GFEH
+    6, 5, 4, // GFE
+    4, 7, 6, // EHG
     // AEFB
     0, 4, 5, // AEF
     5, 1, 0, // FBA
