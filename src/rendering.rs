@@ -1,12 +1,10 @@
-use cgmath::Quaternion;
+use cgmath::{Quaternion, SquareMatrix};
 use pollster::FutureExt;
 use std::sync::Arc;
-use std::time::Instant;
-use wgpu::util::DeviceExt;
+use wgpu::util::{DeviceExt, RenderEncoder};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::PhysicalKey;
 use winit::window::{Window, WindowId};
 
 use crate::texture;
@@ -90,46 +88,8 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
                 WindowEvent::Resized(physical_size) => {
                     self.state.as_mut().unwrap().resize(physical_size);
                 }
-                WindowEvent::KeyboardInput {
-                    device_id: _,
-                    event,
-                    is_synthetic: _,
-                } => {
-                    if !event.state.is_pressed() {
-                        return;
-                    }
-
-                    if event.physical_key == PhysicalKey::Code(winit::keyboard::KeyCode::Escape) {
-                        event_loop.exit();
-                    } else if event.physical_key
-                        == PhysicalKey::Code(winit::keyboard::KeyCode::Space)
-                    {
-                        self.state.as_mut().unwrap().space_pressed = true;
-                        dbg!("space pressed");
-                    }
-                }
-                WindowEvent::CursorMoved { position, .. } => {
-                    let state = self.state.as_mut().unwrap();
-
-                    if state.space_pressed {
-                        state.space_pressed = false;
-                        state.add_instance(Instance::new(
-                            (position.x as f32 - (state.size.width as f32 * 0.5))
-                                / state.size.width as f32
-                                * 2.0
-                                - INSTANCE_WIDTH * 0.5,
-                            (position.y as f32 - (state.size.height as f32 * 0.5))
-                                / (0.0 - state.size.height as f32)
-                                * 2.0
-                                - INSTANCE_HEIGTH * 0.5,
-                            0.0,
-                            None,
-                        ));
-                    }
-                }
                 WindowEvent::RedrawRequested => {
                     let state = self.state.as_mut().unwrap();
-                    state.update();
                     state.render().unwrap();
                 }
                 _ => {}
@@ -148,6 +108,11 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
 
+    camera: Camera,
+    camera_uniform: CameraUniform,
+    camera_buffer: wgpu::Buffer,
+    camera_bind_group: wgpu::BindGroup,
+
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
@@ -158,9 +123,6 @@ pub struct State<'a> {
 
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
-
-    space_pressed: bool,
-    previous_time: Instant,
 }
 
 impl<'a> State<'a> {
@@ -223,7 +185,7 @@ impl<'a> State<'a> {
 
         surface.configure(&device, &config);
 
-        let diffuse_bytes = include_bytes!("happy-tree.png");
+        let diffuse_bytes = include_bytes!("textures/cobblestone.png");
         let diffuse_texture =
             crate::texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png")
                 .unwrap();
@@ -270,10 +232,75 @@ impl<'a> State<'a> {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice::<Vertex, u8>(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice::<u16, u8>(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let num_indices = INDICES.len().try_into().unwrap();
+
+        let instances = Vec::new();
+
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Instance Buffer"),
+            size: std::mem::size_of::<InstanceRaw>() as u64 * MAX_INSTANCES,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let camera = Camera {
+            eye: (0.0, 2.0, 0.0).into(),
+            target: (0.0, 2.0, 1.0).into(),
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 110.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("camera_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("camera_bind_group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+        });
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&texture_bind_group_layout],
+                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -315,28 +342,6 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice::<Vertex, u8>(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice::<u16, u8>(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let num_indices = INDICES.len().try_into().unwrap();
-
-        let instances = Vec::new();
-
-        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Instance Buffer"),
-            size: std::mem::size_of::<InstanceRaw>() as u64 * MAX_INSTANCES,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         Self {
             surface,
             device,
@@ -352,8 +357,10 @@ impl<'a> State<'a> {
             diffuse_texture,
             instances,
             instance_buffer,
-            space_pressed: false,
-            previous_time: Instant::now(),
+            camera,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
         }
     }
 
@@ -368,15 +375,6 @@ impl<'a> State<'a> {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
         }
-    }
-
-    fn update(&mut self) {
-        let delta_time = Instant::now() - self.previous_time;
-
-        crate::physics::update_instances(&mut self.instances, delta_time);
-        self.previous_time = Instant::now();
-
-        self.update_instance_buffer();
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -416,6 +414,8 @@ impl<'a> State<'a> {
 
         render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
 
+        render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -429,31 +429,52 @@ impl<'a> State<'a> {
 
         Ok(())
     }
+}
 
-    pub fn add_instance(&mut self, instance: Instance) {
-        if self.instances.len() as u64 >= MAX_INSTANCES {
-            println!("Max  number of instances reached!");
-            return;
-        }
+#[derive(Debug)]
+struct Camera {
+    eye: cgmath::Point3<f32>,
+    target: cgmath::Point3<f32>,
+    up: cgmath::Vector3<f32>,
+    aspect: f32,
+    fovy: f32,
+    znear: f32,
+    zfar: f32,
+}
 
-        self.instances.push(instance);
-        self.update_instance_buffer();
+#[rustfmt::skip]
+pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.5,
+    0.0, 0.0, 0.0, 1.0,
+);
+
+impl Camera {
+    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
+        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+
+        return OPENGL_TO_WGPU_MATRIX * proj * view;
     }
-    fn update_instance_buffer(&mut self) {
-        let instance_data = self
-            .instances
-            .iter()
-            .map(Instance::to_raw)
-            .collect::<Vec<_>>();
+}
 
-        self.queue.write_buffer(
-            &self.instance_buffer,
-            0,
-            bytemuck::cast_slice(&instance_data),
-        );
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
+    view_proj: [[f32; 4]; 4],
+}
 
-        self.queue.submit([]);
-        self.window().request_redraw();
+impl CameraUniform {
+    fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+
+    fn update_view_proj(&mut self, camera: &Camera) {
+        self.view_proj = camera.build_view_projection_matrix().into()
     }
 }
 
