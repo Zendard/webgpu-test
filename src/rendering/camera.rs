@@ -19,6 +19,7 @@ pub struct PlayerController {
     pub projection: Projection,
     pub controller: CameraController,
     pub mouse_pressed: bool,
+    pub camera_uniform: CameraUniform,
 }
 
 #[derive(Debug, Clone)]
@@ -28,7 +29,6 @@ pub struct Camera {
     pub bind_group: BindGroup,
     #[allow(unused)]
     pub buffer: Buffer,
-    pub camera_uniform: CameraUniform,
     yaw: Rad<f32>,
     pitch: Rad<f32>,
 }
@@ -61,9 +61,8 @@ impl Camera {
         yaw: Y,
         pitch: P,
         device: &wgpu::Device,
+        camera_uniform: CameraUniform,
     ) -> Self {
-        let camera_uniform = CameraUniform::new();
-
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
@@ -98,7 +97,6 @@ impl Camera {
             bind_group_layout,
             bind_group,
             buffer,
-            camera_uniform,
             yaw: yaw.into(),
             pitch: pitch.into(),
         }
@@ -231,13 +229,15 @@ impl PlayerController {
         config: &wgpu::SurfaceConfiguration,
         device: &wgpu::Device,
     ) -> Self {
-        let camera = Camera::new(position, Rad(0.), Rad(90.), device);
+        let camera_uniform = CameraUniform::new();
+        let camera = Camera::new(position, Rad(0.), Rad(90.), device, camera_uniform);
         let projection = Projection::new(config.width, config.height, Deg(45.), 0.1, 100.);
-        let controller = CameraController::new(5., 5.);
+        let controller = CameraController::new(50., 50.);
 
         Self {
             camera,
             projection,
+            camera_uniform,
             controller,
             mouse_pressed: false,
         }

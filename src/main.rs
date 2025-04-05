@@ -1,5 +1,6 @@
 use std::error::Error;
 
+mod movement;
 mod rendering;
 
 fn main() -> Result<(), Box<dyn Error>> {

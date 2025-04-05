@@ -1,4 +1,3 @@
-use block::Block;
 use pollster::FutureExt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -146,7 +145,10 @@ impl<'a> State<'a> {
         });
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
-        let player_controller = camera::PlayerController::new([0., 0., 0.], &config, &device);
+        let mut player_controller = camera::PlayerController::new([0., 2., 0.], &config, &device);
+        player_controller
+            .camera_uniform
+            .update_view_proj(&player_controller.camera, &player_controller.projection);
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -202,14 +204,7 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let blocks = [
-            Block::new(-2., 0., 3.),
-            Block::new(-2., 2., 3.),
-            Block::new(-2., -2., 3.),
-            Block::new(2., 0., 3.),
-            Block::new(2., 2., 3.),
-            Block::new(2., -2., 3.),
-        ];
+        let blocks = block::Block::plane((-5., 0., -5.), 10, 10);
         let instances: Vec<Instance> = blocks
             .iter()
             .flat_map(|block| block.to_instances().to_vec())
@@ -290,18 +285,15 @@ impl<'a> State<'a> {
 
         // println!("Position: {:?}", self.player_controller.camera.position);
 
-        let camera = &self.player_controller.camera.clone();
-        let projection = &self.player_controller.projection.clone();
-
-        self.player_controller
-            .camera
-            .camera_uniform
-            .update_view_proj(camera, projection);
+        self.player_controller.camera_uniform.update_view_proj(
+            &self.player_controller.camera,
+            &self.player_controller.projection,
+        );
 
         self.queue.write_buffer(
-            &camera.buffer,
+            &self.player_controller.camera.buffer,
             0,
-            bytemuck::cast_slice(&[camera.camera_uniform]),
+            bytemuck::cast_slice(&[self.player_controller.camera_uniform]),
         );
     }
 

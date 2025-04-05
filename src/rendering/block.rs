@@ -45,7 +45,7 @@ impl Block {
             rotation: Quaternion::from_angle_x(Deg(180.0)),
         };
         let face_back = Instance {
-            position: self.position + cgmath::vec3(0.0, 1.0, 1.0),
+            position: self.position + cgmath::vec3(0.0, 0.0, 1.0),
             rotation: Quaternion::from_angle_x(Deg(0.0)),
         };
         let face_left = Instance {
@@ -71,5 +71,17 @@ impl Block {
         Block {
             position: vec3(x, y, z),
         }
+    }
+
+    pub fn plane(position: (f32, f32, f32), width: u32, heigth: u32) -> Vec<Block> {
+        let mut blocks = Vec::new();
+        for x in 0..width {
+            for z in 0..heigth {
+                let new_x = position.0 + x as f32;
+                let new_z = position.0 + z as f32;
+                blocks.push(Block::new(new_x, position.1, new_z));
+            }
+        }
+        blocks
     }
 }
