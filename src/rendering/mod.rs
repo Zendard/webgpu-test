@@ -5,11 +5,11 @@ use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::PhysicalKey;
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-mod block;
-mod camera;
+pub mod block;
+pub mod camera;
 mod hardware;
 mod texture;
 
@@ -39,9 +39,6 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
         _: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) {
-        if !self.state.as_ref().unwrap().player_controller.mouse_pressed {
-            return;
-        }
         if let DeviceEvent::MouseMotion { delta } = event {
             self.state
                 .as_mut()
@@ -95,7 +92,7 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
 
-    player_controller: camera::PlayerController,
+    player_controller: crate::movement::PlayerController,
     last_render_time: Instant,
 
     vertex_buffer: wgpu::Buffer,
@@ -145,7 +142,8 @@ impl<'a> State<'a> {
         });
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
-        let mut player_controller = camera::PlayerController::new([0., 2., 0.], &config, &device);
+        let mut player_controller =
+            crate::movement::PlayerController::new([0., 2., 0.], &config, &device);
         player_controller
             .camera_uniform
             .update_view_proj(&player_controller.camera, &player_controller.projection);
@@ -262,16 +260,28 @@ impl<'a> State<'a> {
                         ..
                     },
                 ..
-            } => self
-                .player_controller
-                .controller
-                .process_keyboard(*key, *state),
+            } => {
+                if *key == KeyCode::Escape {
+                    self.window
+                        .set_cursor_grab(winit::window::CursorGrabMode::None)
+                        .unwrap();
+                    self.window.set_cursor_visible(true);
+                }
+                self.player_controller
+                    .controller
+                    .process_keyboard(*key, *state)
+            }
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
                 state,
                 ..
             } => {
-                self.player_controller.mouse_pressed = state.is_pressed();
+                if state.is_pressed() {
+                    self.window
+                        .set_cursor_grab(winit::window::CursorGrabMode::Locked)
+                        .unwrap();
+                    self.window.set_cursor_visible(false);
+                }
                 true
             }
             _ => false,
@@ -378,7 +388,7 @@ impl Vertex {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Instance {
+pub struct Instance {
     position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
 }

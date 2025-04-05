@@ -1,7 +1,5 @@
-use cgmath::{perspective, vec3, Deg, InnerSpace, Matrix4, Point3, Rad, Vector3, Zero};
-use std::time::Duration;
+use cgmath::{perspective, vec3, InnerSpace, Matrix4, Point3, Rad, Vector3, Zero};
 use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer};
-use winit::{event::*, keyboard::KeyCode};
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -11,26 +9,14 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.0, 1.0,
 );
 
-const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2 - 0.0001;
-
-#[derive(Debug)]
-pub struct PlayerController {
-    pub camera: Camera,
-    pub projection: Projection,
-    pub controller: CameraController,
-    pub mouse_pressed: bool,
-    pub camera_uniform: CameraUniform,
-}
-
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub position: Point3<f32>,
     pub bind_group_layout: BindGroupLayout,
     pub bind_group: BindGroup,
-    #[allow(unused)]
     pub buffer: Buffer,
-    yaw: Rad<f32>,
-    pitch: Rad<f32>,
+    pub yaw: Rad<f32>,
+    pub pitch: Rad<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,20 +25,6 @@ pub struct Projection {
     fovy: Rad<f32>,
     znear: f32,
     zfar: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct CameraController {
-    amount_left: f32,
-    amount_right: f32,
-    amount_forward: f32,
-    amount_backward: f32,
-    amount_up: f32,
-    amount_down: f32,
-    rotate_horizontal: f32,
-    rotate_vertical: f32,
-    speed: f32,
-    sensitivity: f32,
 }
 
 impl Camera {
@@ -133,117 +105,6 @@ impl Projection {
     }
 }
 
-impl CameraController {
-    pub fn new(speed: f32, sensitivity: f32) -> Self {
-        Self {
-            amount_left: 0.0,
-            amount_right: 0.0,
-            amount_forward: 0.0,
-            amount_backward: 0.0,
-            amount_up: 0.0,
-            amount_down: 0.0,
-            rotate_horizontal: 0.0,
-            rotate_vertical: 0.0,
-            speed,
-            sensitivity,
-        }
-    }
-
-    pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState) -> bool {
-        let amount = if state == ElementState::Pressed {
-            1.0
-        } else {
-            0.0
-        };
-        match key {
-            KeyCode::KeyW | KeyCode::ArrowUp => {
-                self.amount_forward = amount;
-                true
-            }
-            KeyCode::KeyS | KeyCode::ArrowDown => {
-                self.amount_backward = amount;
-                true
-            }
-            KeyCode::KeyA | KeyCode::ArrowLeft => {
-                self.amount_left = amount;
-                true
-            }
-            KeyCode::KeyD | KeyCode::ArrowRight => {
-                self.amount_right = amount;
-                true
-            }
-            KeyCode::Space => {
-                self.amount_up = amount;
-                true
-            }
-            KeyCode::ShiftLeft => {
-                self.amount_down = amount;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
-        self.rotate_horizontal = mouse_dx as f32;
-        self.rotate_vertical = mouse_dy as f32;
-    }
-
-    pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration) {
-        let dt = dt.as_secs_f32();
-        // dbg!(&camera.position);
-
-        // Move forward/backward and left/right
-        let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
-        camera.position += forward * (self.amount_forward - self.amount_backward) * self.speed * dt;
-        camera.position += right * (self.amount_right - self.amount_left) * self.speed * dt;
-
-        // Move up/down. Since we don't use roll, we can just
-        // modify the y coordinate directly.
-        camera.position.y += (self.amount_up - self.amount_down) * self.speed * dt;
-
-        // Rotate
-        camera.yaw += Rad(self.rotate_horizontal) * self.sensitivity * dt;
-        camera.pitch += Rad(-self.rotate_vertical) * self.sensitivity * dt;
-
-        // If process_mouse isn't called every frame, these values
-        // will not get set to zero, and the camera will rotate
-        // when moving in a non-cardinal direction.
-        self.rotate_horizontal = 0.0;
-        self.rotate_vertical = 0.0;
-
-        // Keep the camera's angle from going too high/low.
-        if camera.pitch < -Rad(SAFE_FRAC_PI_2) {
-            camera.pitch = -Rad(SAFE_FRAC_PI_2);
-        } else if camera.pitch > Rad(SAFE_FRAC_PI_2) {
-            camera.pitch = Rad(SAFE_FRAC_PI_2);
-        }
-    }
-}
-
-impl PlayerController {
-    pub fn new(
-        position: [f32; 3],
-        config: &wgpu::SurfaceConfiguration,
-        device: &wgpu::Device,
-    ) -> Self {
-        let camera_uniform = CameraUniform::new();
-        let camera = Camera::new(position, Rad(0.), Rad(90.), device, camera_uniform);
-        let projection = Projection::new(config.width, config.height, Deg(45.), 0.1, 100.);
-        let controller = CameraController::new(50., 50.);
-
-        Self {
-            camera,
-            projection,
-            camera_uniform,
-            controller,
-            mouse_pressed: false,
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
@@ -252,7 +113,7 @@ pub struct CameraUniform {
 }
 
 impl CameraUniform {
-    fn new() -> Self {
+    pub fn new() -> Self {
         use cgmath::SquareMatrix;
         Self {
             view_position: cgmath::Vector4::zero().into(),
