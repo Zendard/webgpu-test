@@ -4,6 +4,8 @@ use std::time::Duration;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2 - 0.0001;
+const PLAYER_ACCELERATION: f32 = 0.98;
+const BLOCK_FRICTION: f32 = 0.546;
 
 #[derive(Debug)]
 pub struct PlayerController {
@@ -35,67 +37,42 @@ impl PlayerController {
 
 #[derive(Debug, Clone)]
 pub struct CameraController {
-    amount_left: f32,
-    amount_right: f32,
-    amount_forward: f32,
-    amount_backward: f32,
-    amount_up: f32,
-    amount_down: f32,
+    input: (f32, f32, f32),
+    movement: (f32, f32, f32),
+    velocity: (f32, f32, f32),
     rotate: (f32, f32),
-    speed: f32,
     sensitivity: f32,
-    velocity: (f32, f32),
 }
 
 impl CameraController {
     pub fn new(sensitivity: f32) -> Self {
         Self {
-            amount_left: 0.0,
-            amount_right: 0.0,
-            amount_forward: 0.0,
-            amount_backward: 0.0,
-            amount_up: 0.0,
-            amount_down: 0.0,
+            input: (0., 0., 0.),
+            movement: (0., 0., 0.),
+            velocity: (0., 0., 0.),
             rotate: (0., 0.),
-            speed: 0.,
-            velocity: (0., 0.),
             sensitivity,
         }
     }
 
-    pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState) -> bool {
+    pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState, dt: Duration) -> bool {
+        let dt = dt.as_secs_f32() * 20.;
         let amount = if state == ElementState::Pressed {
             1.0
         } else {
             0.0
         };
         match key {
-            KeyCode::KeyW | KeyCode::ArrowUp => {
-                self.amount_forward = amount;
-                true
-            }
-            KeyCode::KeyS | KeyCode::ArrowDown => {
-                self.amount_backward = amount;
-                true
-            }
-            KeyCode::KeyA | KeyCode::ArrowLeft => {
-                self.amount_left = amount;
-                true
-            }
-            KeyCode::KeyD | KeyCode::ArrowRight => {
-                self.amount_right = amount;
-                true
-            }
-            KeyCode::Space => {
-                self.amount_up = amount;
-                true
-            }
-            KeyCode::ShiftLeft => {
-                self.amount_down = amount;
-                true
-            }
-            _ => false,
-        }
+            KeyCode::KeyW | KeyCode::ArrowUp => self.input.2 = amount,
+            KeyCode::KeyS | KeyCode::ArrowDown => self.input.2 = -amount,
+            KeyCode::KeyA | KeyCode::ArrowLeft => self.input.0 = -amount,
+            KeyCode::KeyD | KeyCode::ArrowRight => self.input.0 = amount,
+            KeyCode::Space => self.input.1 = amount,
+            KeyCode::ShiftLeft => self.input.1 = -amount,
+            _ => return false,
+        };
+
+        return true;
     }
 
     pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
@@ -104,18 +81,40 @@ impl CameraController {
 
     pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration) {
         let dt = dt.as_secs_f32();
+        self.velocity.0 = ((self.velocity.0 * BLOCK_FRICTION * 0.91)
+            + (PLAYER_ACCELERATION * self.input.0 * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            * dt
+            * 20.;
+        self.velocity.1 = ((self.velocity.1 * BLOCK_FRICTION * 0.91)
+            + (PLAYER_ACCELERATION * self.input.1 * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            * dt
+            * 20.;
+        self.velocity.2 = ((self.velocity.2 * BLOCK_FRICTION * 0.91)
+            + (PLAYER_ACCELERATION * self.input.2 * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            * dt
+            * 20.;
+        self.movement.0 += self.velocity.0;
+        self.movement.1 += self.velocity.1;
+        self.movement.2 += self.velocity.2;
+
+        dbg!(self.movement);
+        dbg!(self.velocity);
+
         // dbg!(&camera.position);
 
         // Move forward/backward and left/right
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
         let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
         let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
-        camera.position += forward * (self.amount_forward - self.amount_backward) * self.speed * dt;
-        camera.position += right * (self.amount_right - self.amount_left) * self.speed * dt;
+        camera.position += forward * (self.movement.2);
+        camera.position += right * (self.movement.0);
 
         // Move up/down. Since we don't use roll, we can just
         // modify the y coordinate directly.
-        camera.position.y += (self.amount_up - self.amount_down) * self.speed * dt;
+        camera.position.y += self.movement.1;
+
+        // dbg!(self.movement);
+        // dbg!(camera.position);
 
         // Rotate
         camera.yaw += Rad(self.rotate.0) * self.sensitivity * dt;
@@ -125,6 +124,7 @@ impl CameraController {
         // will not get set to zero, and the camera will rotate
         // when moving in a non-cardinal direction.
         self.rotate = (0., 0.);
+        self.movement = (0., 0., 0.);
 
         // Keep the camera's angle from going too high/low.
         if camera.pitch < -Rad(SAFE_FRAC_PI_2) {

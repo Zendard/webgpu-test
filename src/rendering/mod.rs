@@ -67,10 +67,13 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
                 }
                 WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. } => {
                     let state = self.state.as_mut().unwrap();
-                    state.input(&event);
+
+                    let dt = Instant::now() - state.last_render_time;
+                    state.input(&event, dt);
                 }
                 WindowEvent::RedrawRequested => {
                     let state = self.state.as_mut().unwrap();
+
                     let dt = Instant::now() - state.last_render_time;
                     state.update(dt);
                     state.render().unwrap();
@@ -250,7 +253,7 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
+    pub fn input(&mut self, event: &WindowEvent, dt: Duration) -> bool {
         match event {
             WindowEvent::KeyboardInput {
                 event:
@@ -269,7 +272,7 @@ impl<'a> State<'a> {
                 }
                 self.player_controller
                     .controller
-                    .process_keyboard(*key, *state)
+                    .process_keyboard(*key, *state, dt)
             }
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
@@ -292,8 +295,6 @@ impl<'a> State<'a> {
         self.player_controller
             .controller
             .update_camera(&mut self.player_controller.camera, dt);
-
-        // println!("Position: {:?}", self.player_controller.camera.position);
 
         self.player_controller.camera_uniform.update_view_proj(
             &self.player_controller.camera,
