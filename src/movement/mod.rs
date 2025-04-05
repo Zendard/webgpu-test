@@ -55,8 +55,7 @@ impl CameraController {
         }
     }
 
-    pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState, dt: Duration) -> bool {
-        let dt = dt.as_secs_f32() * 20.;
+    pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState) -> bool {
         let amount = if state == ElementState::Pressed {
             1.0
         } else {
