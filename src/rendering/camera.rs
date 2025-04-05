@@ -231,9 +231,9 @@ impl PlayerController {
         config: &wgpu::SurfaceConfiguration,
         device: &wgpu::Device,
     ) -> Self {
-        let camera = Camera::new(position, Rad(0.), Rad(0.), device);
+        let camera = Camera::new(position, Rad(0.), Rad(90.), device);
         let projection = Projection::new(config.width, config.height, Deg(45.), 0.1, 100.);
-        let controller = CameraController::new(1., 1.);
+        let controller = CameraController::new(5., 5.);
 
         Self {
             camera,

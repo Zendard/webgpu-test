@@ -146,7 +146,7 @@ impl<'a> State<'a> {
         });
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
-        let player_controller = camera::PlayerController::new([0., 2., 0.], &config, &device);
+        let player_controller = camera::PlayerController::new([0., 0., 0.], &config, &device);
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -203,12 +203,12 @@ impl<'a> State<'a> {
         });
 
         let blocks = [
-            Block::new(1., 4., 2.),
-            Block::new(1., 4., 4.),
-            Block::new(1., 4., 6.),
-            Block::new(1., 0., 2.),
-            Block::new(-2., 0., 2.),
-            Block::new(-2., 4., 2.),
+            Block::new(-2., 0., 3.),
+            Block::new(-2., 2., 3.),
+            Block::new(-2., -2., 3.),
+            Block::new(2., 0., 3.),
+            Block::new(2., 2., 3.),
+            Block::new(2., -2., 3.),
         ];
         let instances: Vec<Instance> = blocks
             .iter()
@@ -297,6 +297,12 @@ impl<'a> State<'a> {
             .camera
             .camera_uniform
             .update_view_proj(camera, projection);
+
+        self.queue.write_buffer(
+            &camera.buffer,
+            0,
+            bytemuck::cast_slice(&[camera.camera_uniform]),
+        );
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
