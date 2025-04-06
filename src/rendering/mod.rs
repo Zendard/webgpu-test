@@ -75,6 +75,10 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
 
                     let dt = Instant::now() - state.last_render_time;
                     state.update(dt);
+                    if (Instant::now() - state.last_tick_time) >= Duration::from_millis(50) {
+                        state.tick_update();
+                        state.last_tick_time = Instant::now();
+                    }
                     state.render().unwrap();
                     state.last_render_time = Instant::now();
                     self.state.as_ref().unwrap().window().request_redraw();
@@ -97,6 +101,7 @@ pub struct State<'a> {
     player_controller: crate::movement::PlayerController,
     blocks: HashSet<block::Block>,
     last_render_time: Instant,
+    last_tick_time: Instant,
 
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -146,7 +151,7 @@ impl<'a> State<'a> {
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
         let mut player_controller =
-            crate::movement::PlayerController::new([0., 100., 0.], &config, &device);
+            crate::movement::PlayerController::new([0., 10., 0.], &config, &device);
         player_controller
             .camera_uniform
             .update_view_proj(&player_controller.camera, &player_controller.projection);
@@ -232,6 +237,7 @@ impl<'a> State<'a> {
             player_controller,
             blocks,
             last_render_time: Instant::now(),
+            last_tick_time: Instant::now(),
             instances,
             instance_buffer,
         }
@@ -309,6 +315,10 @@ impl<'a> State<'a> {
             0,
             bytemuck::cast_slice(&[self.player_controller.camera_uniform]),
         );
+    }
+
+    pub fn tick_update(&mut self) {
+        self.player_controller.controller.tick_update_camera()
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

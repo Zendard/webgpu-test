@@ -6,10 +6,12 @@ use std::time::Duration;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2 - 0.0001;
-const PLAYER_ACCELERATION: f32 = DRAG;
-const BLOCK_FRICTION: f32 = 0.546;
-const DRAG: f32 = 0.98;
+const PLAYER_ACCELERATION: f32 = 1.;
+const SLIPPERINESS: f32 = 0.546;
 const GRAVITY: f32 = 0.08;
+const JUMP_ACCELERATION: f32 = 0.42;
+const JUMP_COOLDOWN: Duration = Duration::from_millis(500);
+const SECONDS_IN_TICK: f32 = 0.05;
 
 #[derive(Debug)]
 pub struct PlayerController {
@@ -26,8 +28,8 @@ impl PlayerController {
         device: &wgpu::Device,
     ) -> Self {
         let camera_uniform = CameraUniform::new();
-        let camera = Camera::new(position, Rad(0.), Rad(90.), device, camera_uniform);
-        let projection = Projection::new(config.width, config.height, Deg(45.), 0.1, 100.);
+        let camera = Camera::new(position, Rad(0.), Rad(110.), device, camera_uniform);
+        let projection = Projection::new(config.width, config.height, Deg(90.), 0.1, 100.);
         let controller = CameraController::new(50.);
 
         Self {
@@ -56,6 +58,7 @@ struct KeyboardInput {
     pub z: f32,
     pub sprint: bool,
     pub sneak: bool,
+    pub last_jump_time: std::time::Instant,
 }
 
 impl CameraController {
@@ -67,6 +70,7 @@ impl CameraController {
                 z: 0.,
                 sprint: false,
                 sneak: false,
+                last_jump_time: std::time::Instant::now(),
             },
             movement: (0., 0., 0.),
             velocity: (0., 0., 0.),
@@ -96,15 +100,23 @@ impl CameraController {
             _ => return false,
         };
 
-        return true;
+        true
     }
 
     pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
         self.rotate = (mouse_dx as f32, mouse_dy as f32);
     }
 
-    pub fn update_camera(&mut self, camera: &mut Camera, blocks: &HashSet<Block>, dt: Duration) {
-        let dt = dt.as_secs_f32();
+    pub fn tick_update_camera(&mut self) {
+        let mut velocity_x = self.velocity.0 * SECONDS_IN_TICK;
+        let mut velocity_y = self.velocity.1 * SECONDS_IN_TICK;
+        let mut velocity_z = self.velocity.2 * SECONDS_IN_TICK;
+        // Check if we can jump
+        let do_jump = self.input.y == 1.
+            && self.on_ground
+            && std::time::Instant::now() - self.input.last_jump_time >= JUMP_COOLDOWN;
+
+        // Sprinting/Sneaking
         let acceleration = if self.input.sprint {
             PLAYER_ACCELERATION * 1.3
         } else if self.input.sneak {
@@ -113,28 +125,52 @@ impl CameraController {
             PLAYER_ACCELERATION
         };
 
-        self.velocity.0 = ((self.velocity.0 * BLOCK_FRICTION * 0.91)
-            + (acceleration * self.input.x * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
-            * dt
-            * 20.;
+        // Multiply acceleration by 0.2 and set drag to 0.91 when in the air
+        let slipperiness = if self.on_ground { SLIPPERINESS } else { 1. };
 
-        if self.on_ground {
-            self.velocity.1 = 0.;
+        // Calculate x velocity
+        velocity_x = if self.on_ground {
+            velocity_x * slipperiness * 0.91
+                + 0.1 * acceleration * self.input.x * (0.6 / slipperiness).powi(3)
         } else {
-            self.velocity.1 = (self.velocity.1 * GRAVITY.powf(dt * 20.))
-                - (GRAVITY * (1. - (GRAVITY.powf(dt * 20.))) / (1. - GRAVITY) * GRAVITY);
+            velocity_x * slipperiness * 0.91 + 0.02 * acceleration * self.input.x
         };
 
-        self.velocity.2 = ((self.velocity.2 * BLOCK_FRICTION * 0.91)
-            + (acceleration * self.input.z * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
-            * dt
-            * 20.;
+        // Calculate z velocity
+        velocity_z = if self.on_ground {
+            velocity_z * slipperiness * 0.91
+                + 0.1 * acceleration * self.input.z * (0.6 / slipperiness).powi(3)
+        } else {
+            velocity_z * slipperiness * 0.91 + 0.02 * acceleration * self.input.z
+        };
 
-        self.movement.0 += self.velocity.0;
-        self.movement.1 += self.velocity.1;
-        self.movement.2 += self.velocity.2;
+        // Set vertical velocity
+        velocity_y = if do_jump {
+            self.input.last_jump_time = std::time::Instant::now();
+            JUMP_ACCELERATION
+        } else if self.on_ground {
+            0.
+        } else {
+            (velocity_y - GRAVITY) * 0.98
+        };
 
-        // dbg!(&camera.position);
+        if do_jump && self.input.sprint {
+            velocity_x += 0.2 * self.input.x;
+            velocity_z += 0.2 * self.input.z;
+        }
+
+        self.velocity.0 = velocity_x / SECONDS_IN_TICK;
+        self.velocity.1 = velocity_y / SECONDS_IN_TICK;
+        self.velocity.2 = velocity_z / SECONDS_IN_TICK;
+    }
+
+    pub fn update_camera(&mut self, camera: &mut Camera, blocks: &HashSet<Block>, dt: Duration) {
+        let dt = dt.as_secs_f32();
+
+        // Add velocity to position
+        self.movement.0 += self.velocity.0 * dt * 5.;
+        self.movement.1 += self.velocity.1 * dt * 5.;
+        self.movement.2 += self.velocity.2 * dt * 5.;
 
         // Move forward/backward and left/right
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
@@ -145,10 +181,9 @@ impl CameraController {
 
         // Move up/down. Since we don't use roll, we can just
         // modify the y coordinate directly.
-        camera.position.y += self.movement.1;
-
-        // dbg!(self.movement);
-        // dbg!(camera.position);
+        if self.velocity.1.abs() > 0.005 {
+            camera.position.y += self.movement.1
+        };
 
         // Rotate
         camera.yaw += Rad(self.rotate.0) * self.sensitivity * dt;
@@ -167,6 +202,7 @@ impl CameraController {
             camera.pitch = Rad(SAFE_FRAC_PI_2);
         }
 
+        // Check if we are on the ground
         let block_below = Block::new(
             camera.position.x as i32,
             camera.position.y as i32 - 2,
