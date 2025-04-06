@@ -1,4 +1,5 @@
 use pollster::FutureExt;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
@@ -94,6 +95,7 @@ pub struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
 
     player_controller: crate::movement::PlayerController,
+    blocks: HashSet<block::Block>,
     last_render_time: Instant,
 
     vertex_buffer: wgpu::Buffer,
@@ -144,7 +146,7 @@ impl<'a> State<'a> {
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
         let mut player_controller =
-            crate::movement::PlayerController::new([0., 2., 0.], &config, &device);
+            crate::movement::PlayerController::new([0., 100., 0.], &config, &device);
         player_controller
             .camera_uniform
             .update_view_proj(&player_controller.camera, &player_controller.projection);
@@ -203,7 +205,7 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let blocks = block::Block::plane((-5., 0., -5.), 10, 10);
+        let blocks = block::Block::plane((-5, 0, -5), 10, 10);
         let instances: Vec<Instance> = blocks
             .iter()
             .flat_map(|block| block.to_instances().to_vec())
@@ -228,6 +230,7 @@ impl<'a> State<'a> {
             diffuse_texture,
             depth_texture,
             player_controller,
+            blocks,
             last_render_time: Instant::now(),
             instances,
             instance_buffer,
@@ -290,9 +293,11 @@ impl<'a> State<'a> {
     }
 
     pub fn update(&mut self, dt: Duration) {
-        self.player_controller
-            .controller
-            .update_camera(&mut self.player_controller.camera, dt);
+        self.player_controller.controller.update_camera(
+            &mut self.player_controller.camera,
+            &self.blocks,
+            dt,
+        );
 
         self.player_controller.camera_uniform.update_view_proj(
             &self.player_controller.camera,

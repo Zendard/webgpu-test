@@ -1,11 +1,15 @@
+use crate::rendering::block::Block;
 use crate::rendering::camera::{Camera, CameraUniform, Projection};
 use cgmath::{Deg, InnerSpace, Rad, Vector3};
+use std::collections::HashSet;
 use std::time::Duration;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2 - 0.0001;
-const PLAYER_ACCELERATION: f32 = 0.98;
+const PLAYER_ACCELERATION: f32 = DRAG;
 const BLOCK_FRICTION: f32 = 0.546;
+const DRAG: f32 = 0.98;
+const GRAVITY: f32 = 0.08;
 
 #[derive(Debug)]
 pub struct PlayerController {
@@ -40,6 +44,7 @@ pub struct CameraController {
     input: KeyboardInput,
     movement: (f32, f32, f32),
     velocity: (f32, f32, f32),
+    on_ground: bool,
     rotate: (f32, f32),
     sensitivity: f32,
 }
@@ -65,6 +70,7 @@ impl CameraController {
             },
             movement: (0., 0., 0.),
             velocity: (0., 0., 0.),
+            on_ground: true,
             rotate: (0., 0.),
             sensitivity,
         }
@@ -103,18 +109,22 @@ impl CameraController {
         self.rotate = (mouse_dx as f32, mouse_dy as f32);
     }
 
-    pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration) {
+    pub fn update_camera(&mut self, camera: &mut Camera, blocks: &HashSet<Block>, dt: Duration) {
         let dt = dt.as_secs_f32();
         self.velocity.0 = ((self.velocity.0 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.x * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            + (PLAYER_ACCELERATION * self.input.x * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
             * dt
             * 20.;
-        self.velocity.1 = ((self.velocity.1 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.y * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
-            * dt
-            * 20.;
+
+        if self.on_ground {
+            self.velocity.1 = 0.;
+        } else {
+            self.velocity.1 = (self.velocity.1 * GRAVITY.powf(dt * 20.))
+                - (GRAVITY * (1. - (GRAVITY.powf(dt * 20.))) / (1. - GRAVITY) * GRAVITY);
+        };
+
         self.velocity.2 = ((self.velocity.2 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.z * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            + (PLAYER_ACCELERATION * self.input.z * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
             * dt
             * 20.;
 
@@ -154,5 +164,12 @@ impl CameraController {
         } else if camera.pitch > Rad(SAFE_FRAC_PI_2) {
             camera.pitch = Rad(SAFE_FRAC_PI_2);
         }
+
+        let block_below = Block::new(
+            camera.position.x as i32,
+            camera.position.y as i32 - 2,
+            camera.position.z as i32,
+        );
+        self.on_ground = blocks.contains(&block_below);
     }
 }
