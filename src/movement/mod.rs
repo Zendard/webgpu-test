@@ -78,15 +78,9 @@ impl CameraController {
 
     pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState) -> bool {
         let amount = if state == ElementState::Pressed {
-            if self.input.sneak {
-                0.3
-            } else if self.input.sprint {
-                1.3
-            } else {
-                1.0
-            }
+            1.
         } else {
-            0.0
+            0.
         };
         match key {
             KeyCode::KeyW | KeyCode::ArrowUp => self.input.z = amount,
@@ -111,8 +105,16 @@ impl CameraController {
 
     pub fn update_camera(&mut self, camera: &mut Camera, blocks: &HashSet<Block>, dt: Duration) {
         let dt = dt.as_secs_f32();
+        let acceleration = if self.input.sprint {
+            PLAYER_ACCELERATION * 1.3
+        } else if self.input.sneak {
+            PLAYER_ACCELERATION * 0.3
+        } else {
+            PLAYER_ACCELERATION
+        };
+
         self.velocity.0 = ((self.velocity.0 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.x * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
+            + (acceleration * self.input.x * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
             * dt
             * 20.;
 
@@ -124,7 +126,7 @@ impl CameraController {
         };
 
         self.velocity.2 = ((self.velocity.2 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.z * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
+            + (acceleration * self.input.z * DRAG * (0.6 / BLOCK_FRICTION).powi(3)))
             * dt
             * 20.;
 
