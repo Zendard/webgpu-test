@@ -37,17 +37,32 @@ impl PlayerController {
 
 #[derive(Debug, Clone)]
 pub struct CameraController {
-    input: (f32, f32, f32),
+    input: KeyboardInput,
     movement: (f32, f32, f32),
     velocity: (f32, f32, f32),
     rotate: (f32, f32),
     sensitivity: f32,
 }
 
+#[derive(Debug, Clone)]
+struct KeyboardInput {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub sprint: bool,
+    pub sneak: bool,
+}
+
 impl CameraController {
     pub fn new(sensitivity: f32) -> Self {
         Self {
-            input: (0., 0., 0.),
+            input: KeyboardInput {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+                sprint: false,
+                sneak: false,
+            },
             movement: (0., 0., 0.),
             velocity: (0., 0., 0.),
             rotate: (0., 0.),
@@ -57,17 +72,27 @@ impl CameraController {
 
     pub fn process_keyboard(&mut self, key: KeyCode, state: ElementState) -> bool {
         let amount = if state == ElementState::Pressed {
-            1.0
+            if self.input.sneak {
+                0.3
+            } else if self.input.sprint {
+                1.3
+            } else {
+                1.0
+            }
         } else {
             0.0
         };
         match key {
-            KeyCode::KeyW | KeyCode::ArrowUp => self.input.2 = amount,
-            KeyCode::KeyS | KeyCode::ArrowDown => self.input.2 = -amount,
-            KeyCode::KeyA | KeyCode::ArrowLeft => self.input.0 = -amount,
-            KeyCode::KeyD | KeyCode::ArrowRight => self.input.0 = amount,
-            KeyCode::Space => self.input.1 = amount,
-            KeyCode::ShiftLeft => self.input.1 = -amount,
+            KeyCode::KeyW | KeyCode::ArrowUp => self.input.z = amount,
+            KeyCode::KeyS | KeyCode::ArrowDown => self.input.z = -amount,
+            KeyCode::KeyA | KeyCode::ArrowLeft => self.input.x = -amount,
+            KeyCode::KeyD | KeyCode::ArrowRight => self.input.x = amount,
+            KeyCode::Space => self.input.y = amount,
+            KeyCode::ShiftLeft => {
+                // self.input.y = -amount;
+                self.input.sneak = state.is_pressed()
+            }
+            KeyCode::ControlLeft => self.input.sprint = state.is_pressed(),
             _ => return false,
         };
 
@@ -81,23 +106,21 @@ impl CameraController {
     pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration) {
         let dt = dt.as_secs_f32();
         self.velocity.0 = ((self.velocity.0 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.0 * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            + (PLAYER_ACCELERATION * self.input.x * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
             * dt
             * 20.;
         self.velocity.1 = ((self.velocity.1 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.1 * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            + (PLAYER_ACCELERATION * self.input.y * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
             * dt
             * 20.;
         self.velocity.2 = ((self.velocity.2 * BLOCK_FRICTION * 0.91)
-            + (PLAYER_ACCELERATION * self.input.2 * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
+            + (PLAYER_ACCELERATION * self.input.z * 0.98 * (0.6 / BLOCK_FRICTION).powi(3)))
             * dt
             * 20.;
+
         self.movement.0 += self.velocity.0;
         self.movement.1 += self.velocity.1;
         self.movement.2 += self.velocity.2;
-
-        dbg!(self.movement);
-        dbg!(self.velocity);
 
         // dbg!(&camera.position);
 
