@@ -9,6 +9,8 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+use crate::terrain;
+
 pub mod block;
 pub mod camera;
 mod culling;
@@ -17,15 +19,12 @@ mod texture;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
-    pub terrain: HashSet<block::Block>,
+    pub seed: u32,
 }
 
 impl<'a> StateApplication<'a> {
-    pub fn new(terrain: HashSet<block::Block>) -> Self {
-        StateApplication {
-            state: None,
-            terrain,
-        }
+    pub fn new(seed: u32) -> Self {
+        StateApplication { state: None, seed }
     }
 }
 
@@ -41,7 +40,7 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
         let window = event_loop
             .create_window(Window::default_attributes().with_title("WGPU test"))
             .unwrap();
-        self.state = Some(State::new(window, self.terrain.clone()).block_on());
+        self.state = Some(State::new(window, self.seed).block_on());
     }
 
     fn device_event(
@@ -110,6 +109,9 @@ pub struct State<'a> {
 
     player_controller: crate::movement::PlayerController,
     blocks: HashSet<block::Block>,
+    edge_blocks: HashSet<block::Block>,
+    previous_chunk: (i32, i32),
+    seed: u32,
     last_render_time: Instant,
     last_tick_time: Instant,
 
@@ -126,7 +128,7 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
     // Creating some of the wgpu types requires async code
-    async fn new(window: Window, terrain: HashSet<block::Block>) -> State<'a> {
+    async fn new(window: Window, seed: u32) -> State<'a> {
         let window = Arc::new(window);
         let window_clone = window.clone();
         let (device, config, queue, surface) = hardware::init(window_clone).await;
@@ -220,15 +222,18 @@ impl<'a> State<'a> {
             cache: None,
         });
 
+        let (terrain, mut edge_blocks) =
+            terrain::generate_terrain((-63, 0, -63), (96, 10, 96), seed);
         let blocks = terrain;
-        let instances: Vec<Instance> = culling::blocks_to_instances(&blocks);
+        let instances: Vec<Instance> = culling::blocks_to_instances(&blocks, &mut edge_blocks);
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
+            mapped_at_creation: false,
+            size: 32 * 32 * 10 * 16 * 360,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
-
+        queue.write_buffer(&instance_buffer, 0, bytemuck::cast_slice(&instance_data));
         Self {
             surface,
             device,
@@ -243,6 +248,9 @@ impl<'a> State<'a> {
             depth_texture,
             player_controller,
             blocks,
+            edge_blocks,
+            previous_chunk: (0, 0),
+            seed,
             last_render_time: Instant::now(),
             last_tick_time: Instant::now(),
             instances,
@@ -305,12 +313,75 @@ impl<'a> State<'a> {
         }
     }
 
+    fn update_terrain(&mut self) {
+        let current_chunk = (
+            self.player_controller.camera.position.x as i32 / 32,
+            self.player_controller.camera.position.z as i32 / 32,
+        );
+
+        // Dont need to update when in the same chunk
+        if current_chunk == self.previous_chunk {
+            return;
+        }
+        dbg!(current_chunk);
+
+        let chunk_to_render = if current_chunk.0 > self.previous_chunk.0 {
+            (current_chunk.0 + 2, current_chunk.1)
+        } else if current_chunk.0 < self.previous_chunk.0 {
+            (current_chunk.0 - 2, current_chunk.1)
+        } else if current_chunk.1 > self.previous_chunk.1 {
+            (current_chunk.0, current_chunk.1 + 2)
+        } else {
+            (current_chunk.0, current_chunk.1 - 2)
+        };
+
+        let (terrain, edge_blocks) = terrain::generate_terrain(
+            (chunk_to_render.0 * 32 + 1, 0, chunk_to_render.1 * 32 + 1),
+            (
+                (chunk_to_render.0 + 1) * 32,
+                10,
+                (chunk_to_render.1 + 1) * 32,
+            ),
+            self.seed,
+        );
+
+        let new_blocks: HashSet<block::Block> =
+            self.blocks.union(&terrain).map(|block| *block).collect();
+        let middle_blocks: HashSet<block::Block> = self
+            .blocks
+            .intersection(&new_blocks)
+            .map(|block| *block)
+            .collect();
+        self.blocks = middle_blocks.union(&terrain).map(|block| *block).collect();
+        self.edge_blocks = self
+            .edge_blocks
+            .union(&edge_blocks)
+            .map(|block| *block)
+            .collect();
+
+        self.instances = culling::blocks_to_instances(&self.blocks, &mut self.edge_blocks);
+        let instance_data = self
+            .instances
+            .iter()
+            .map(Instance::as_raw)
+            .collect::<Vec<_>>();
+        self.queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&instance_data),
+        );
+
+        self.previous_chunk = current_chunk;
+    }
+
     pub fn update(&mut self, dt: Duration) {
         self.player_controller.controller.update_camera(
             &mut self.player_controller.camera,
             &self.blocks,
             dt,
         );
+
+        self.update_terrain();
 
         self.player_controller.camera_uniform.update_view_proj(
             &self.player_controller.camera,
