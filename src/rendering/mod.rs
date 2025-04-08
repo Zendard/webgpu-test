@@ -14,9 +14,18 @@ pub mod camera;
 mod hardware;
 mod texture;
 
-#[derive(Default)]
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
+    pub terrain: HashSet<block::Block>,
+}
+
+impl<'a> StateApplication<'a> {
+    pub fn new(terrain: HashSet<block::Block>) -> Self {
+        StateApplication {
+            state: None,
+            terrain,
+        }
+    }
 }
 
 #[repr(C)]
@@ -31,7 +40,7 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
         let window = event_loop
             .create_window(Window::default_attributes().with_title("WGPU test"))
             .unwrap();
-        self.state = Some(State::new(window).block_on());
+        self.state = Some(State::new(window, self.terrain.clone()).block_on());
     }
 
     fn device_event(
@@ -116,7 +125,7 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
     // Creating some of the wgpu types requires async code
-    async fn new(window: Window) -> State<'a> {
+    async fn new(window: Window, terrain: HashSet<block::Block>) -> State<'a> {
         let window = Arc::new(window);
         let window_clone = window.clone();
         let (device, config, queue, surface) = hardware::init(window_clone).await;
@@ -151,7 +160,7 @@ impl<'a> State<'a> {
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
         let mut player_controller =
-            crate::movement::PlayerController::new([0., 10., 0.], &config, &device);
+            crate::movement::PlayerController::new([0., 120., 0.], &config, &device);
         player_controller
             .camera_uniform
             .update_view_proj(&player_controller.camera, &player_controller.projection);
@@ -210,10 +219,10 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let blocks = block::Block::plane((-5, 0, -5), 10, 10);
+        let blocks = terrain;
         let instances: Vec<Instance> = blocks
             .iter()
-            .flat_map(|block| block.to_instances().to_vec())
+            .flat_map(|block| block.as_instances().to_vec())
             .collect();
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

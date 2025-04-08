@@ -28,13 +28,13 @@ pub const FACE_INDICES: &[u16] = &[
     0, 2, 3,
 ];
 
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct Block {
-    position: (i32, i32, i32),
+    pub position: (i32, i32, i32),
 }
 
 impl Block {
-    pub fn to_instances(&self) -> [Instance; 6] {
+    pub fn as_instances(&self) -> [Instance; 6] {
         let position_f32: (f32, f32, f32) = (
             self.position.0 as f32,
             self.position.1 as f32,
@@ -82,6 +82,7 @@ impl Block {
         }
     }
 
+    #[allow(dead_code)]
     pub fn plane(position: (i32, i32, i32), width: u32, heigth: u32) -> HashSet<Block> {
         let mut blocks = HashSet::new();
         for x in 0..width {
