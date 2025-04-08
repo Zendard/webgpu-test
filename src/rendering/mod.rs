@@ -11,6 +11,7 @@ use winit::window::{Window, WindowId};
 
 pub mod block;
 pub mod camera;
+mod culling;
 mod hardware;
 mod texture;
 
@@ -220,10 +221,7 @@ impl<'a> State<'a> {
         });
 
         let blocks = terrain;
-        let instances: Vec<Instance> = blocks
-            .iter()
-            .flat_map(|block| block.as_instances().to_vec())
-            .collect();
+        let instances: Vec<Instance> = culling::blocks_to_instances(&blocks);
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),

@@ -7,7 +7,7 @@ const HEIGTH_BIAS: f64 = 1.;
 const TERRAIN_SCALING_FACTOR: f64 = 4.;
 
 pub fn generate_terrain(start: (i32, i32, i32), end: (i32, i32, i32), seed: u32) -> HashSet<Block> {
-    println!("Generating terrain");
+    println!("Generating terrain...");
     let size = ((end.0 - start.0) * (end.1 - start.1) * (end.2 - start.2)).unsigned_abs();
     let mut densities = HashMap::with_capacity(size as usize);
     let perlin = Perlin::new(seed);
@@ -49,6 +49,6 @@ pub fn generate_terrain(start: (i32, i32, i32), end: (i32, i32, i32), seed: u32)
         )
         .collect();
 
-    dbg!(&blocks.len());
+    println!("Done, blocks: {}", blocks.len());
     blocks
 }
