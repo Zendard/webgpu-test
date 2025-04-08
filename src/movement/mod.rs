@@ -47,6 +47,7 @@ pub struct CameraController {
     movement: (f32, f32, f32),
     velocity: (f32, f32, f32),
     on_ground: bool,
+    gravity_enabled: bool,
     rotate: (f32, f32),
     sensitivity: f32,
 }
@@ -75,6 +76,7 @@ impl CameraController {
             movement: (0., 0., 0.),
             velocity: (0., 0., 0.),
             on_ground: true,
+            gravity_enabled: true,
             rotate: (0., 0.),
             sensitivity,
         }
@@ -97,6 +99,11 @@ impl CameraController {
                 self.input.sneak = state.is_pressed()
             }
             KeyCode::ControlLeft => self.input.sprint = state.is_pressed(),
+            KeyCode::KeyG => {
+                if state.is_pressed() {
+                    self.gravity_enabled = !self.gravity_enabled
+                }
+            }
             _ => return false,
         };
 
@@ -111,6 +118,10 @@ impl CameraController {
         let mut velocity_x = self.velocity.0 * SECONDS_IN_TICK;
         let mut velocity_y = self.velocity.1 * SECONDS_IN_TICK;
         let mut velocity_z = self.velocity.2 * SECONDS_IN_TICK;
+
+        if !self.gravity_enabled {
+            self.on_ground = true
+        }
         // Check if we can jump
         let do_jump = self.input.y == 1.
             && self.on_ground
@@ -118,8 +129,12 @@ impl CameraController {
 
         // Sprinting/Sneaking
         let acceleration = if self.input.sprint {
-            PLAYER_ACCELERATION * 1.3
-        } else if self.input.sneak {
+            if self.gravity_enabled {
+                PLAYER_ACCELERATION * 1.3
+            } else {
+                PLAYER_ACCELERATION * 5.
+            }
+        } else if self.input.sneak && self.gravity_enabled {
             PLAYER_ACCELERATION * 0.3
         } else {
             PLAYER_ACCELERATION
@@ -153,6 +168,13 @@ impl CameraController {
         } else {
             (velocity_y - GRAVITY) * 0.98
         };
+
+        if !self.gravity_enabled && self.input.y > 0. {
+            velocity_y = 2.
+        }
+        if !self.gravity_enabled && self.input.sneak {
+            velocity_y = -2.
+        }
 
         if do_jump && self.input.sprint {
             velocity_x += 0.2 * self.input.x;
