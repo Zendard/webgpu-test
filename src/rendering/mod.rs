@@ -1,6 +1,5 @@
 use pollster::FutureExt;
 use std::collections::HashSet;
-use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
@@ -233,7 +232,6 @@ impl<'a> State<'a> {
             for y in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
                 let terrain = terrain.clone();
                 let handle = std::thread::spawn(move || {
-                    std::io::stdout().flush().unwrap();
                     let chunk = terrain::generate_chunk((x, y), seed);
                     terrain.lock().unwrap().extend(chunk);
                 });
@@ -254,8 +252,6 @@ impl<'a> State<'a> {
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
 
         let buffer_size = 40000000;
-        dbg!(buffer_size);
-        dbg!(instances.len() * std::mem::size_of::<InstanceRaw>());
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
@@ -385,67 +381,38 @@ impl<'a> State<'a> {
         queue: Queue,
         buffer: wgpu::Buffer,
     ) {
-        let chunks_to_render = if current_chunk.0 > previous_chunk.0 {
-            [
-                (
-                    current_chunk.0 + RENDER_DISTANCE as i32 - 1,
-                    current_chunk.1 - 1,
-                ),
-                (
-                    current_chunk.0 + RENDER_DISTANCE as i32 - 1,
-                    current_chunk.1,
-                ),
-                (
-                    current_chunk.0 + RENDER_DISTANCE as i32 - 1,
-                    current_chunk.1 + 1,
-                ),
-            ]
+        let mut chunks_to_render: Vec<(i32, i32)> =
+            Vec::with_capacity((RENDER_DISTANCE * 2 - 1) as usize);
+        if current_chunk.0 > previous_chunk.0 {
+            for z in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
+                chunks_to_render.push((
+                    (current_chunk.0 + RENDER_DISTANCE as i32 - 1),
+                    current_chunk.1 + z,
+                ));
+            }
         } else if current_chunk.0 < previous_chunk.0 {
-            [
-                (
-                    current_chunk.0 - RENDER_DISTANCE as i32 + 1,
-                    current_chunk.1 - 1,
-                ),
-                (
-                    current_chunk.0 - RENDER_DISTANCE as i32 + 1,
-                    current_chunk.1,
-                ),
-                (
-                    current_chunk.0 - RENDER_DISTANCE as i32 + 1,
-                    current_chunk.1 + 1,
-                ),
-            ]
+            for z in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
+                chunks_to_render.push((
+                    (current_chunk.0 - RENDER_DISTANCE as i32 + 1),
+                    current_chunk.1 + z,
+                ));
+            }
         } else if current_chunk.1 > previous_chunk.1 {
-            [
-                (
-                    current_chunk.0 - 1,
-                    current_chunk.1 + RENDER_DISTANCE as i32 - 1,
-                ),
-                (
-                    current_chunk.0,
-                    current_chunk.1 + RENDER_DISTANCE as i32 - 1,
-                ),
-                (
-                    current_chunk.0 + 1,
-                    current_chunk.1 + RENDER_DISTANCE as i32 - 1,
-                ),
-            ]
+            for x in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
+                chunks_to_render.push((
+                    current_chunk.1 + x,
+                    (current_chunk.0 + RENDER_DISTANCE as i32 - 1),
+                ));
+            }
         } else {
-            [
-                (
-                    current_chunk.0 - 1,
-                    current_chunk.1 - RENDER_DISTANCE as i32 + 1,
-                ),
-                (
-                    current_chunk.0,
-                    current_chunk.1 - RENDER_DISTANCE as i32 + 1,
-                ),
-                (
-                    current_chunk.0 + 1,
-                    current_chunk.1 - RENDER_DISTANCE as i32 + 1,
-                ),
-            ]
+            for x in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
+                chunks_to_render.push((
+                    current_chunk.1 + x,
+                    (current_chunk.0 - RENDER_DISTANCE as i32 + 1),
+                ));
+            }
         };
+        dbg!(chunks_to_render.len());
 
         let mut terrain = HashSet::new();
         println!("Generating new chunks...");
@@ -464,6 +431,7 @@ impl<'a> State<'a> {
 
         *instances = blocks.iter().flat_map(block::Block::as_instances).collect();
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
+        println!("Copying to GPU...");
         queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&instance_data));
     }
 
