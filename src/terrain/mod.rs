@@ -1,65 +1,85 @@
 use crate::rendering::block::Block;
 use noise::{NoiseFn, Perlin};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
+const CHUNK_SIZE: u32 = 32;
 const BASE_HEIGTH: f64 = 64.;
-const HEIGTH_BIAS: f64 = 1.;
-const TERRAIN_SCALING_FACTOR: f64 = 4.;
-const EDGE_DENSITY: f64 = 1.;
+const HEIGTH_BIAS: f64 = 0.01;
+const TERRAIN_SCALING_FACTOR: f64 = 1.;
 
-pub fn generate_terrain(
-    start: (i32, i32, i32),
-    end: (i32, i32, i32),
-    seed: u32,
-) -> (HashSet<Block>, HashSet<Block>) {
-    println!("Generating terrain...");
-    let size = ((end.0 - start.0) * (end.1 - start.1) * (end.2 - start.2)).unsigned_abs();
-    let mut densities = HashMap::with_capacity(size as usize);
-    let mut edge_blocks = HashSet::new();
+pub fn generate_terrain(start: (i32, i32, i32), end: (i32, i32, i32), seed: u32) -> HashSet<Block> {
+    // println!("Generating terrain...");
+    // let volume = ((end.0 - start.0) * (end.1 - start.1) * (end.2 - start.2)).unsigned_abs();
+    let mut blocks = HashSet::new();
     let perlin = Perlin::new(seed);
+    let size = (
+        (end.0 - start.0).abs() as f64 / TERRAIN_SCALING_FACTOR,
+        (end.1 - start.1).abs() as f64 / TERRAIN_SCALING_FACTOR,
+        (end.2 - start.2).abs() as f64 / TERRAIN_SCALING_FACTOR,
+    );
 
     for x in start.0..end.0 {
         for y in start.1..end.1 {
             for z in start.2..end.2 {
-                let block = Block::new(x, y, z);
-                let size = (
-                    (end.0 - start.0).abs() as f64 / TERRAIN_SCALING_FACTOR,
-                    (end.1 - start.1).abs() as f64 / TERRAIN_SCALING_FACTOR,
-                    (end.2 - start.2).abs() as f64 / TERRAIN_SCALING_FACTOR,
-                );
-                let mut density =
-                    perlin.get([x as f64 / size.0, y as f64 / size.1, z as f64 / size.2]);
+                let mut block = Block::new(x, y, z);
+                let add_block = check_block((x, y, z), perlin, size);
 
-                if block.position.1 > BASE_HEIGTH as i32 {
-                    density -= (block.position.1 as f64 - BASE_HEIGTH) * HEIGTH_BIAS;
+                if !add_block {
+                    continue;
                 }
 
-                densities.insert(block, density);
+                let block_left = check_block((x - 1, y, z), perlin, size);
+                let block_right = check_block((x + 1, y, z), perlin, size);
+                let block_under = check_block((x, y - 1, z), perlin, size);
+                let block_above = check_block((x, y + 1, z), perlin, size);
+                let block_before = check_block((x, y, z - 1), perlin, size);
+                let block_after = check_block((x, y, z + 1), perlin, size);
 
-                if density < EDGE_DENSITY && density > 0. {
-                    edge_blocks.insert(block);
+                // If a block beside this block is empty, add that face to visible_faces
+                if !block_left {
+                    block.visible_faces ^= 0b100000
                 }
+                if !block_right {
+                    block.visible_faces ^= 0b010000
+                }
+                if !block_under {
+                    block.visible_faces ^= 0b001000
+                }
+                if !block_above {
+                    block.visible_faces ^= 0b000100
+                }
+                if !block_before {
+                    block.visible_faces ^= 0b000010
+                }
+                if !block_after {
+                    block.visible_faces ^= 0b000001
+                }
+
+                blocks.insert(block);
             }
         }
     }
 
-    let blocks: HashSet<Block> = densities
-        .iter()
-        .filter_map(
-            |(block, density)| {
-                if *density > 0. {
-                    Some(*block)
-                } else {
-                    None
-                }
-            },
-        )
-        .collect();
-
-    println!(
-        "Done, blocks: {}, edge blocks: {}",
-        blocks.len(),
-        edge_blocks.len()
+    // println!("Done, blocks: {}", blocks.len(),);
+    blocks
+}
+pub fn generate_chunk(chunk: (i32, i32), seed: u32) -> HashSet<Block> {
+    let start = (chunk.0 * CHUNK_SIZE as i32, 0, chunk.1 * CHUNK_SIZE as i32);
+    let end = (
+        (chunk.0 + 1) * CHUNK_SIZE as i32,
+        128,
+        (chunk.1 + 1) * CHUNK_SIZE as i32,
     );
-    (blocks, edge_blocks)
+
+    generate_terrain(start, end, seed)
+}
+
+fn check_block(position: (i32, i32, i32), perlin: Perlin, size: (f64, f64, f64)) -> bool {
+    let (x, y, z) = position;
+    let mut density = perlin.get([x as f64 / size.0, y as f64 / size.1, z as f64 / size.2]);
+
+    if y > BASE_HEIGTH as i32 {
+        density -= (y as f64 - BASE_HEIGTH) * HEIGTH_BIAS;
+    }
+    density > 0.
 }

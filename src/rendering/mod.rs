@@ -1,8 +1,10 @@
 use pollster::FutureExt;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
+use wgpu::Queue;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -13,9 +15,10 @@ use crate::terrain;
 
 pub mod block;
 pub mod camera;
-mod culling;
 mod hardware;
 mod texture;
+
+const RENDER_DISTANCE: u32 = 5;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -108,8 +111,7 @@ pub struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
 
     player_controller: crate::movement::PlayerController,
-    blocks: HashSet<block::Block>,
-    edge_blocks: HashSet<block::Block>,
+    blocks: Arc<Mutex<HashSet<block::Block>>>,
     previous_chunk: (i32, i32),
     seed: u32,
     last_render_time: Instant,
@@ -122,7 +124,7 @@ pub struct State<'a> {
     diffuse_texture: texture::Texture,
     depth_texture: texture::RawTexture,
 
-    instances: Vec<Instance>,
+    instances: Arc<Mutex<Vec<Instance>>>,
     instance_buffer: wgpu::Buffer,
 }
 
@@ -133,7 +135,7 @@ impl<'a> State<'a> {
         let window_clone = window.clone();
         let (device, config, queue, surface) = hardware::init(window_clone).await;
 
-        let diffuse_bytes = include_bytes!("../textures/cobblestone.png");
+        let diffuse_bytes = include_bytes!("../textures/stone.png");
         let diffuse_texture = texture::Texture::from_bytes(
             &device,
             &queue,
@@ -163,7 +165,7 @@ impl<'a> State<'a> {
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
         let mut player_controller =
-            crate::movement::PlayerController::new([0., 120., 0.], &config, &device);
+            crate::movement::PlayerController::new([16., 120., 16.], &config, &device);
         player_controller
             .camera_uniform
             .update_view_proj(&player_controller.camera, &player_controller.projection);
@@ -222,18 +224,34 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let (terrain, mut edge_blocks) =
-            terrain::generate_terrain((-63, 0, -63), (96, 10, 96), seed);
-        let blocks = terrain;
-        let instances: Vec<Instance> = culling::blocks_to_instances(&blocks, &mut edge_blocks);
+        let amount_of_chunks = (RENDER_DISTANCE * 2 - 1).pow(2);
+        let mut chunk_number = 1;
+
+        let mut terrain = HashSet::new();
+        for x in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
+            for y in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
+                print!("\rGenerating chunk ({}/{})", chunk_number, amount_of_chunks);
+                std::io::stdout().flush().unwrap();
+                let chunk = terrain::generate_chunk((x, y), seed);
+                terrain.extend(chunk);
+                chunk_number += 1;
+            }
+        }
+        let instances: Vec<Instance> = terrain
+            .iter()
+            .flat_map(block::Block::as_instances)
+            .collect();
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
             mapped_at_creation: false,
-            size: 32 * 32 * 10 * 16 * 360,
+            size: 268435456,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+        println!("\nCopying to GPU...");
         queue.write_buffer(&instance_buffer, 0, bytemuck::cast_slice(&instance_data));
+        let terrain = Arc::new(Mutex::new(terrain));
+        let instances = Arc::new(Mutex::new(instances));
         Self {
             surface,
             device,
@@ -247,8 +265,7 @@ impl<'a> State<'a> {
             diffuse_texture,
             depth_texture,
             player_controller,
-            blocks,
-            edge_blocks,
+            blocks: terrain,
             previous_chunk: (0, 0),
             seed,
             last_render_time: Instant::now(),
@@ -323,61 +340,123 @@ impl<'a> State<'a> {
         if current_chunk == self.previous_chunk {
             return;
         }
-        dbg!(current_chunk);
-
-        let chunk_to_render = if current_chunk.0 > self.previous_chunk.0 {
-            (current_chunk.0 + 2, current_chunk.1)
-        } else if current_chunk.0 < self.previous_chunk.0 {
-            (current_chunk.0 - 2, current_chunk.1)
-        } else if current_chunk.1 > self.previous_chunk.1 {
-            (current_chunk.0, current_chunk.1 + 2)
-        } else {
-            (current_chunk.0, current_chunk.1 - 2)
-        };
-
-        let (terrain, edge_blocks) = terrain::generate_terrain(
-            (chunk_to_render.0 * 32 + 1, 0, chunk_to_render.1 * 32 + 1),
-            (
-                (chunk_to_render.0 + 1) * 32,
-                10,
-                (chunk_to_render.1 + 1) * 32,
-            ),
-            self.seed,
-        );
-
-        let new_blocks: HashSet<block::Block> =
-            self.blocks.union(&terrain).map(|block| *block).collect();
-        let middle_blocks: HashSet<block::Block> = self
-            .blocks
-            .intersection(&new_blocks)
-            .map(|block| *block)
-            .collect();
-        self.blocks = middle_blocks.union(&terrain).map(|block| *block).collect();
-        self.edge_blocks = self
-            .edge_blocks
-            .union(&edge_blocks)
-            .map(|block| *block)
-            .collect();
-
-        self.instances = culling::blocks_to_instances(&self.blocks, &mut self.edge_blocks);
-        let instance_data = self
-            .instances
-            .iter()
-            .map(Instance::as_raw)
-            .collect::<Vec<_>>();
-        self.queue.write_buffer(
-            &self.instance_buffer,
-            0,
-            bytemuck::cast_slice(&instance_data),
-        );
+        let previous_chunk = self.previous_chunk.clone();
+        let seed = self.seed.clone();
+        let blocks = self.blocks.clone();
+        let instances = self.instances.clone();
+        let queue = self.queue.clone();
+        let instance_buffer = self.instance_buffer.clone();
 
         self.previous_chunk = current_chunk;
+
+        std::thread::spawn(move || {
+            State::generate_new_chunks(
+                current_chunk,
+                previous_chunk,
+                seed,
+                blocks,
+                instances,
+                queue,
+                instance_buffer,
+            )
+        });
+    }
+
+    fn generate_new_chunks(
+        current_chunk: (i32, i32),
+        previous_chunk: (i32, i32),
+        seed: u32,
+        blocks: Arc<Mutex<HashSet<block::Block>>>,
+        instances: Arc<Mutex<Vec<Instance>>>,
+        queue: Queue,
+        buffer: wgpu::Buffer,
+    ) {
+        let chunks_to_render = if current_chunk.0 > previous_chunk.0 {
+            [
+                (
+                    current_chunk.0 + RENDER_DISTANCE as i32 - 1,
+                    current_chunk.1 - 1,
+                ),
+                (
+                    current_chunk.0 + RENDER_DISTANCE as i32 - 1,
+                    current_chunk.1,
+                ),
+                (
+                    current_chunk.0 + RENDER_DISTANCE as i32 - 1,
+                    current_chunk.1 + 1,
+                ),
+            ]
+        } else if current_chunk.0 < previous_chunk.0 {
+            [
+                (
+                    current_chunk.0 - RENDER_DISTANCE as i32 + 1,
+                    current_chunk.1 - 1,
+                ),
+                (
+                    current_chunk.0 - RENDER_DISTANCE as i32 + 1,
+                    current_chunk.1,
+                ),
+                (
+                    current_chunk.0 - RENDER_DISTANCE as i32 + 1,
+                    current_chunk.1 + 1,
+                ),
+            ]
+        } else if current_chunk.1 > previous_chunk.1 {
+            [
+                (
+                    current_chunk.0 - 1,
+                    current_chunk.1 + RENDER_DISTANCE as i32 - 1,
+                ),
+                (
+                    current_chunk.0,
+                    current_chunk.1 + RENDER_DISTANCE as i32 - 1,
+                ),
+                (
+                    current_chunk.0 + 1,
+                    current_chunk.1 + RENDER_DISTANCE as i32 - 1,
+                ),
+            ]
+        } else {
+            [
+                (
+                    current_chunk.0 - 1,
+                    current_chunk.1 - RENDER_DISTANCE as i32 + 1,
+                ),
+                (
+                    current_chunk.0,
+                    current_chunk.1 - RENDER_DISTANCE as i32 + 1,
+                ),
+                (
+                    current_chunk.0 + 1,
+                    current_chunk.1 - RENDER_DISTANCE as i32 + 1,
+                ),
+            ]
+        };
+
+        let mut terrain = HashSet::new();
+        println!("Generating new chunks...");
+        for chunk_to_render in chunks_to_render {
+            let chunk = terrain::generate_chunk(chunk_to_render, seed);
+            terrain.extend(&chunk);
+        }
+
+        let mut blocks = blocks.lock().unwrap();
+        let mut instances = instances.lock().unwrap();
+
+        let new_blocks: HashSet<block::Block> = blocks.union(&terrain).copied().collect();
+        let middle_blocks: HashSet<block::Block> =
+            blocks.intersection(&new_blocks).copied().collect();
+        *blocks = middle_blocks.union(&terrain).copied().collect();
+
+        *instances = blocks.iter().flat_map(block::Block::as_instances).collect();
+        let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
+        queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&instance_data));
     }
 
     pub fn update(&mut self, dt: Duration) {
         self.player_controller.controller.update_camera(
             &mut self.player_controller.camera,
-            &self.blocks,
+            &self.blocks.lock().unwrap(),
             dt,
         );
 
@@ -401,6 +480,7 @@ impl<'a> State<'a> {
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
+        let instances = self.instances.lock().unwrap();
 
         let view = output
             .texture
@@ -448,7 +528,7 @@ impl<'a> State<'a> {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+        render_pass.draw_indexed(0..self.num_indices, 0, 0..instances.len() as _);
         drop(render_pass);
 
         self.queue.submit(std::iter::once(encoder.finish()));

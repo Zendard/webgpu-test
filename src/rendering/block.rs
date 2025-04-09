@@ -31,16 +31,33 @@ pub const FACE_INDICES: &[u16] = &[
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct Block {
     pub position: (i32, i32, i32),
+    pub visible_faces: u8,
 }
 
 impl Block {
-    pub fn as_instances(&self) -> [Instance; 6] {
+    pub fn new(x: i32, y: i32, z: i32) -> Self {
+        Block {
+            position: (x, y, z),
+            visible_faces: 0b000000,
+        }
+    }
+
+    pub fn as_instances(&self) -> Vec<Instance> {
         let position_f32: (f32, f32, f32) = (
             self.position.0 as f32,
             self.position.1 as f32,
             self.position.2 as f32,
         );
         let position_vec3: Vector3<f32> = cgmath::Vector3::from(position_f32);
+
+        let face_right = Instance {
+            position: position_vec3 + cgmath::vec3(1., 0., 1.),
+            rotation: Quaternion::from_angle_y(Deg(90.0)),
+        };
+        let face_left = Instance {
+            position: position_vec3 + cgmath::vec3(0., 0., 0.),
+            rotation: Quaternion::from_angle_y(Deg(270.0)),
+        };
         let face_bottom = Instance {
             position: position_vec3,
             rotation: Quaternion::from_angle_x(Deg(90.0)),
@@ -57,29 +74,29 @@ impl Block {
             position: position_vec3 + cgmath::vec3(0., 0., 1.),
             rotation: Quaternion::from_angle_x(Deg(0.0)),
         };
-        let face_left = Instance {
-            position: position_vec3 + cgmath::vec3(1., 0., 1.),
-            rotation: Quaternion::from_angle_y(Deg(90.0)),
-        };
-        let face_right = Instance {
-            position: position_vec3 + cgmath::vec3(0., 0., 0.),
-            rotation: Quaternion::from_angle_y(Deg(270.0)),
-        };
 
-        [
-            face_bottom,
-            face_top,
-            face_front,
-            face_back,
-            face_left,
-            face_right,
-        ]
-    }
+        let mut faces = Vec::new();
 
-    pub fn new(x: i32, y: i32, z: i32) -> Self {
-        Block {
-            position: (x, y, z),
+        if (self.visible_faces & 0b100000) > 0 {
+            faces.push(face_left);
         }
+        if (self.visible_faces & 0b010000) > 0 {
+            faces.push(face_right);
+        }
+        if (self.visible_faces & 0b001000) > 0 {
+            faces.push(face_bottom);
+        }
+        if (self.visible_faces & 0b000100) > 0 {
+            faces.push(face_top);
+        }
+        if (self.visible_faces & 0b000010) > 0 {
+            faces.push(face_front);
+        }
+        if (self.visible_faces & 0b000001) > 0 {
+            faces.push(face_back);
+        }
+
+        faces
     }
 
     #[allow(dead_code)]
