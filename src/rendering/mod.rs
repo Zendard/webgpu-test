@@ -19,6 +19,8 @@ mod hardware;
 mod texture;
 
 const RENDER_DISTANCE: u32 = 5;
+const _RENDERED_CHUNKS: u64 = (RENDER_DISTANCE as u64 * 2 - 1).pow(2);
+pub const MAX_BLOCKS_IN_CHUNK: u64 = (crate::terrain::CHUNK_SIZE as u64).pow(2) * 128;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -224,33 +226,45 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let amount_of_chunks = (RENDER_DISTANCE * 2 - 1).pow(2);
-        let mut chunk_number = 1;
-
-        let mut terrain = HashSet::new();
+        let terrain = Arc::new(Mutex::new(HashSet::new()));
+        let mut handles = Vec::new();
+        println!("Generating terrain...");
         for x in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
             for y in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
-                print!("\rGenerating chunk ({}/{})", chunk_number, amount_of_chunks);
-                std::io::stdout().flush().unwrap();
-                let chunk = terrain::generate_chunk((x, y), seed);
-                terrain.extend(chunk);
-                chunk_number += 1;
+                let terrain = terrain.clone();
+                let handle = std::thread::spawn(move || {
+                    std::io::stdout().flush().unwrap();
+                    let chunk = terrain::generate_chunk((x, y), seed);
+                    terrain.lock().unwrap().extend(chunk);
+                });
+                handles.push(handle);
             }
         }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
         let instances: Vec<Instance> = terrain
+            .lock()
+            .unwrap()
             .iter()
             .flat_map(block::Block::as_instances)
             .collect();
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
+
+        let buffer_size = 40000000;
+        dbg!(buffer_size);
+        dbg!(instances.len() * std::mem::size_of::<InstanceRaw>());
+
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
             mapped_at_creation: false,
-            size: 268435456,
+            size: buffer_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         println!("\nCopying to GPU...");
         queue.write_buffer(&instance_buffer, 0, bytemuck::cast_slice(&instance_data));
-        let terrain = Arc::new(Mutex::new(terrain));
         let instances = Arc::new(Mutex::new(instances));
         Self {
             surface,
@@ -340,8 +354,8 @@ impl<'a> State<'a> {
         if current_chunk == self.previous_chunk {
             return;
         }
-        let previous_chunk = self.previous_chunk.clone();
-        let seed = self.seed.clone();
+        let previous_chunk = self.previous_chunk;
+        let seed = self.seed;
         let blocks = self.blocks.clone();
         let instances = self.instances.clone();
         let queue = self.queue.clone();
