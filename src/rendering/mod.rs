@@ -1,4 +1,5 @@
-use crate::terrain;
+use crate::terrain::chunk::Chunk;
+use block::Block;
 use instance::{Instance, InstanceRaw};
 use pollster::FutureExt;
 use std::collections::HashSet;
@@ -22,7 +23,7 @@ pub mod vertex;
 
 const RENDER_DISTANCE: u32 = 5;
 const _RENDERED_CHUNKS: u64 = (RENDER_DISTANCE as u64 * 2 - 1).pow(2);
-pub const MAX_BLOCKS_IN_CHUNK: u64 = (crate::terrain::CHUNK_SIZE as u64).pow(2) * 128;
+pub const MAX_BLOCKS_IN_CHUNK: u64 = (crate::terrain::chunk::CHUNK_SIZE as u64).pow(2) * 128;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -108,7 +109,7 @@ pub struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
 
     player_controller: crate::movement::PlayerController,
-    blocks: Arc<Mutex<HashSet<block::Block>>>,
+    chunks: Arc<Mutex<Vec<Chunk>>>,
     previous_chunk: (i32, i32),
     seed: u32,
     last_render_time: Instant,
@@ -221,15 +222,15 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let terrain = Arc::new(Mutex::new(HashSet::new()));
+        let chunks: Arc<Mutex<Vec<Chunk>>> = Arc::new(Mutex::new(Vec::new()));
         let mut handles = Vec::new();
         println!("Generating terrain...");
         for x in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
             for y in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
-                let terrain = terrain.clone();
+                let chunks = chunks.clone();
                 let handle = std::thread::spawn(move || {
-                    let chunk = terrain::generate_chunk((x, y), seed);
-                    terrain.lock().unwrap().extend(chunk);
+                    let chunk = Chunk::new((x, y), seed);
+                    chunks.lock().unwrap().push(chunk);
                 });
                 handles.push(handle);
             }
@@ -238,12 +239,14 @@ impl<'a> State<'a> {
         for handle in handles {
             handle.join().unwrap();
         }
+        println!("Done");
 
-        let instances: Vec<Instance> = terrain
+        let instances: Vec<Instance> = chunks
             .lock()
             .unwrap()
             .iter()
-            .flat_map(block::Block::as_instances)
+            .flat_map(|chunk| chunk.blocks.clone())
+            .flat_map(|block| block.as_instances())
             .collect();
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
 
@@ -271,7 +274,7 @@ impl<'a> State<'a> {
             diffuse_texture,
             depth_texture,
             player_controller,
-            blocks: terrain,
+            chunks,
             previous_chunk: (0, 0),
             seed,
             last_render_time: Instant::now(),
@@ -348,7 +351,7 @@ impl<'a> State<'a> {
         }
         let previous_chunk = self.previous_chunk;
         let seed = self.seed;
-        let blocks = self.blocks.clone();
+        let chunks = self.chunks.clone();
         let instances = self.instances.clone();
         let queue = self.queue.clone();
         let instance_buffer = self.instance_buffer.clone();
@@ -360,7 +363,7 @@ impl<'a> State<'a> {
                 current_chunk,
                 previous_chunk,
                 seed,
-                blocks,
+                chunks,
                 instances,
                 queue,
                 instance_buffer,
@@ -372,7 +375,7 @@ impl<'a> State<'a> {
         current_chunk: (i32, i32),
         previous_chunk: (i32, i32),
         seed: u32,
-        blocks: Arc<Mutex<HashSet<block::Block>>>,
+        chunks: Arc<Mutex<Vec<Chunk>>>,
         instances: Arc<Mutex<Vec<Instance>>>,
         queue: Queue,
         buffer: wgpu::Buffer,
@@ -408,24 +411,23 @@ impl<'a> State<'a> {
                 ));
             }
         };
-        dbg!(chunks_to_render.len());
 
-        let mut terrain = HashSet::new();
+        let mut terrain: HashSet<Block> = HashSet::new();
         println!("Generating new chunks...");
         for chunk_to_render in chunks_to_render {
-            let chunk = terrain::generate_chunk(chunk_to_render, seed);
-            terrain.extend(&chunk);
+            let chunk = Chunk::new(chunk_to_render, seed);
+            terrain.extend(&chunk.blocks);
         }
 
-        let mut blocks = blocks.lock().unwrap();
+        let blocks: HashSet<Block> = chunks
+            .lock()
+            .unwrap()
+            .iter()
+            .flat_map(|chunk| chunk.blocks.clone())
+            .collect();
         let mut instances = instances.lock().unwrap();
 
-        let new_blocks: HashSet<block::Block> = blocks.union(&terrain).copied().collect();
-        let middle_blocks: HashSet<block::Block> =
-            blocks.intersection(&new_blocks).copied().collect();
-        *blocks = middle_blocks.union(&terrain).copied().collect();
-
-        *instances = blocks.iter().flat_map(block::Block::as_instances).collect();
+        *instances = blocks.iter().flat_map(Block::as_instances).collect();
         let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
         println!("Copying to GPU...");
         queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&instance_data));
@@ -434,7 +436,13 @@ impl<'a> State<'a> {
     pub fn update(&mut self, dt: Duration) {
         self.player_controller.controller.update_camera(
             &mut self.player_controller.camera,
-            &self.blocks.lock().unwrap(),
+            &self
+                .chunks
+                .lock()
+                .unwrap()
+                .iter()
+                .flat_map(|chunk| chunk.blocks.clone())
+                .collect(),
             dt,
         );
 

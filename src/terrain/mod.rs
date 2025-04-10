@@ -5,7 +5,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub const CHUNK_SIZE: u32 = 32;
+pub mod chunk;
+
 const BASE_HEIGTH: f64 = 64.;
 const HEIGTH_BIAS: f64 = 0.1;
 const TERRAIN_SCALING_FACTOR: f64 = 1.;
@@ -77,16 +78,6 @@ pub fn generate_terrain(start: (i32, i32, i32), end: (i32, i32, i32), seed: u32)
     }
 
     blocks
-}
-pub fn generate_chunk(chunk: (i32, i32), seed: u32) -> HashSet<Block> {
-    let start = (chunk.0 * CHUNK_SIZE as i32, 0, chunk.1 * CHUNK_SIZE as i32);
-    let end = (
-        (chunk.0 + 1) * CHUNK_SIZE as i32,
-        128,
-        (chunk.1 + 1) * CHUNK_SIZE as i32,
-    );
-
-    generate_terrain(start, end, seed)
 }
 
 fn check_block(position: (i32, i32, i32), perlin: Perlin, size: (f64, f64, f64)) -> bool {
