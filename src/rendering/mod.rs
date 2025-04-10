@@ -89,6 +89,7 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
                         (Instant::now() - state.last_tick_time).as_millis() / 50;
                     for _ in 0..amount_of_ticks_passed + 1 {
                         state.tick_update();
+                        state.last_tick_time = Instant::now();
                     }
                     state.render().unwrap();
                     state.last_render_time = Instant::now();
