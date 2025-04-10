@@ -2,7 +2,7 @@ use crate::terrain::chunk::Chunk;
 use block::Block;
 use instance::{Instance, InstanceRaw};
 use pollster::FutureExt;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vertex::Vertex;
@@ -111,7 +111,8 @@ pub struct State<'a> {
     render_pipeline: wgpu::RenderPipeline,
 
     player_controller: crate::movement::PlayerController,
-    chunks: Arc<Mutex<Vec<Chunk>>>,
+    chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>>,
+    chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>>,
     previous_chunk: (i32, i32),
     seed: u32,
     last_render_time: Instant,
@@ -170,6 +171,12 @@ impl<'a> State<'a> {
             .camera_uniform
             .update_view_proj(&player_controller.camera, &player_controller.projection);
 
+        let current_chunk = (
+            player_controller.camera.position.x as i32 / 32,
+            player_controller.camera.position.z as i32 / 32,
+        );
+        dbg!(current_chunk);
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -224,15 +231,31 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let chunks: Arc<Mutex<Vec<Chunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>> = Arc::new(Mutex::new(HashMap::new()));
+        let chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let mut handles = Vec::new();
+        let offset = Arc::new(Mutex::new(0));
         println!("Generating terrain...");
         for x in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
             for y in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
                 let chunks = chunks.clone();
+                let chunk_offsets = chunk_offsets.clone();
+                let offset = offset.clone();
                 let handle = std::thread::spawn(move || {
                     let chunk = Chunk::new((x, y), seed);
-                    chunks.lock().unwrap().push(chunk);
+                    let position = chunk.position.clone();
+                    let mut offset = offset.lock().unwrap();
+                    let size = chunk
+                        .blocks
+                        .iter()
+                        .flat_map(Block::as_instances)
+                        .collect::<Vec<_>>()
+                        .len() as u64
+                        * std::mem::size_of::<InstanceRaw>() as u64;
+                    chunks.lock().unwrap().insert(position, chunk);
+                    chunk_offsets.lock().unwrap().insert(position, *offset);
+                    *offset += size;
                 });
                 handles.push(handle);
             }
@@ -246,23 +269,35 @@ impl<'a> State<'a> {
         let instances: Vec<Instance> = chunks
             .lock()
             .unwrap()
-            .iter()
+            .values()
             .flat_map(|chunk| chunk.blocks.clone())
             .flat_map(|block| block.as_instances())
             .collect();
-        let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
 
         let buffer_size = 40000000;
-
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
             mapped_at_creation: false,
             size: buffer_size,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
-        println!("\nCopying to GPU...");
-        queue.write_buffer(&instance_buffer, 0, bytemuck::cast_slice(&instance_data));
+
+        println!("Copying to GPU...");
+        for (position, offset) in chunk_offsets.lock().unwrap().iter() {
+            let chunks = chunks.lock().unwrap();
+            let chunk = chunks.get(position).unwrap();
+            let instances = chunk
+                .blocks
+                .iter()
+                .flat_map(Block::as_instances)
+                .map(|instance| instance.as_raw())
+                .collect::<Vec<_>>();
+
+            queue.write_buffer(&instance_buffer, *offset, bytemuck::cast_slice(&instances));
+        }
+
         let instances = Arc::new(Mutex::new(instances));
+
         Self {
             surface,
             device,
@@ -277,6 +312,7 @@ impl<'a> State<'a> {
             depth_texture,
             player_controller,
             chunks,
+            chunk_offsets,
             previous_chunk: (0, 0),
             seed,
             last_render_time: Instant::now(),
@@ -361,6 +397,7 @@ impl<'a> State<'a> {
         let previous_chunk = self.previous_chunk;
         let seed = self.seed;
         let chunks = self.chunks.clone();
+        let chunk_offsets = self.chunk_offsets.clone();
         let instances = self.instances.clone();
         let queue = self.queue.clone();
         let instance_buffer = self.instance_buffer.clone();
@@ -373,6 +410,7 @@ impl<'a> State<'a> {
                 previous_chunk,
                 seed,
                 chunks,
+                chunk_offsets,
                 instances,
                 queue,
                 instance_buffer,
@@ -384,62 +422,79 @@ impl<'a> State<'a> {
         current_chunk: (i32, i32),
         previous_chunk: (i32, i32),
         seed: u32,
-        chunks: Arc<Mutex<Vec<Chunk>>>,
+        chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>>,
+        chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>>,
         instances: Arc<Mutex<Vec<Instance>>>,
         queue: Queue,
         buffer: wgpu::Buffer,
     ) {
-        let mut chunks_to_render: Vec<(i32, i32)> =
-            Vec::with_capacity((RENDER_DISTANCE * 2 - 1) as usize);
+        let chunks = chunks.lock().unwrap();
+        let mut chunk_changes: HashMap<(i32, i32), (i32, i32)> =
+            HashMap::with_capacity((RENDER_DISTANCE * 2 - 1) as usize);
         if current_chunk.0 > previous_chunk.0 {
-            for z in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
-                chunks_to_render.push((
+            for z in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
+                let new_chunk = (
                     (current_chunk.0 + RENDER_DISTANCE as i32 - 1),
                     current_chunk.1 + z,
-                ));
+                );
+                let old_chunk = (current_chunk.0 - RENDER_DISTANCE as i32, new_chunk.1);
+                chunk_changes.insert(new_chunk, old_chunk);
             }
         } else if current_chunk.0 < previous_chunk.0 {
-            for z in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
-                chunks_to_render.push((
+            for z in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
+                let new_chunk = (
                     (current_chunk.0 - RENDER_DISTANCE as i32 + 1),
                     current_chunk.1 + z,
-                ));
+                );
+                let old_chunk = (current_chunk.0 + RENDER_DISTANCE as i32, new_chunk.1);
+                chunk_changes.insert(new_chunk, old_chunk);
             }
         } else if current_chunk.1 > previous_chunk.1 {
-            for x in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
-                chunks_to_render.push((
-                    current_chunk.1 + x,
-                    (current_chunk.0 + RENDER_DISTANCE as i32 - 1),
-                ));
+            for x in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
+                let new_chunk = (
+                    current_chunk.0 + x,
+                    (current_chunk.1 + RENDER_DISTANCE as i32 - 1),
+                );
+                let old_chunk = (current_chunk.0 - RENDER_DISTANCE as i32, new_chunk.1);
+                chunk_changes.insert(new_chunk, old_chunk);
             }
         } else {
-            for x in -(RENDER_DISTANCE as i32) - 1..RENDER_DISTANCE as i32 {
-                chunks_to_render.push((
-                    current_chunk.1 + x,
-                    (current_chunk.0 - RENDER_DISTANCE as i32 + 1),
-                ));
+            for x in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
+                let new_chunk = (
+                    current_chunk.0 + x,
+                    (current_chunk.1 - RENDER_DISTANCE as i32 + 1),
+                );
+                let old_chunk = (current_chunk.0 + RENDER_DISTANCE as i32, new_chunk.1);
+                chunk_changes.insert(new_chunk, old_chunk);
             }
         };
 
-        let mut terrain: HashSet<Block> = HashSet::new();
         println!("Generating new chunks...");
-        for chunk_to_render in chunks_to_render {
-            let chunk = Chunk::new(chunk_to_render, seed);
-            terrain.extend(&chunk.blocks);
+        for (new_chunk, old_chunk) in chunk_changes {
+            dbg!(&new_chunk, &old_chunk);
+            let chunk = Chunk::new(new_chunk, seed);
+            let instances: Vec<InstanceRaw> = chunk
+                .blocks
+                .iter()
+                .flat_map(|block| {
+                    block
+                        .as_instances()
+                        .iter()
+                        .map(Instance::as_raw)
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            let chunk_offsets = chunk_offsets.lock().unwrap();
+            let offset = *chunk_offsets.get(&old_chunk).unwrap();
+            queue.write_buffer(&buffer, offset, bytemuck::cast_slice(&instances));
         }
 
         let blocks: HashSet<Block> = chunks
-            .lock()
-            .unwrap()
-            .iter()
+            .values()
             .flat_map(|chunk| chunk.blocks.clone())
             .collect();
         let mut instances = instances.lock().unwrap();
-
         *instances = blocks.iter().flat_map(Block::as_instances).collect();
-        let instance_data = instances.iter().map(Instance::as_raw).collect::<Vec<_>>();
-        println!("Copying to GPU...");
-        queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&instance_data));
     }
 
     pub fn update(&mut self, dt: Duration) {
@@ -449,7 +504,7 @@ impl<'a> State<'a> {
                 .chunks
                 .lock()
                 .unwrap()
-                .iter()
+                .values()
                 .flat_map(|chunk| chunk.blocks.clone())
                 .collect(),
             dt,
