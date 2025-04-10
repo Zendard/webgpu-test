@@ -21,7 +21,7 @@ pub mod instance;
 mod texture;
 pub mod vertex;
 
-const RENDER_DISTANCE: u32 = 5;
+const RENDER_DISTANCE: u32 = 1;
 const _RENDERED_CHUNKS: u64 = (RENDER_DISTANCE as u64 * 2 - 1).pow(2);
 pub const MAX_BLOCKS_IN_CHUNK: u64 = (crate::terrain::chunk::CHUNK_SIZE as u64).pow(2) * 128;
 
@@ -85,9 +85,10 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
 
                     let dt = Instant::now() - state.last_render_time;
                     state.update(dt);
-                    if (Instant::now() - state.last_tick_time) >= Duration::from_millis(50) {
+                    let amount_of_ticks_passed =
+                        (Instant::now() - state.last_tick_time).as_millis() / 50;
+                    for _ in 0..amount_of_ticks_passed + 1 {
                         state.tick_update();
-                        state.last_tick_time = Instant::now();
                     }
                     state.render().unwrap();
                     state.last_render_time = Instant::now();
@@ -328,10 +329,17 @@ impl<'a> State<'a> {
                 ..
             } => {
                 if state.is_pressed() {
-                    self.window
-                        .set_cursor_grab(winit::window::CursorGrabMode::Locked)
-                        .unwrap();
-                    self.window.set_cursor_visible(false);
+                    let cursor_grabbed = self
+                        .window
+                        .set_cursor_grab(winit::window::CursorGrabMode::Locked);
+                    if cursor_grabbed.is_ok() {
+                        self.window.set_cursor_visible(false);
+                    } else {
+                        println!(
+                            "Couldn't grab the cursor: {}",
+                            cursor_grabbed.err().unwrap()
+                        );
+                    }
                 }
                 true
             }
