@@ -1,7 +1,7 @@
 use crate::rendering::block::Block;
 use crate::rendering::camera::{Camera, CameraUniform, Projection};
+use crate::terrain::chunk::Chunk;
 use cgmath::{Deg, InnerSpace, Rad, Vector3};
-use std::collections::HashSet;
 use std::time::Duration;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
@@ -114,7 +114,7 @@ impl CameraController {
         self.rotate = (mouse_dx as f32, mouse_dy as f32);
     }
 
-    pub fn tick_update_camera(&mut self) {
+    pub fn tick_update_camera(&mut self, dt: f32) {
         let mut velocity_x = self.velocity.0 * SECONDS_IN_TICK;
         let mut velocity_y = self.velocity.1 * SECONDS_IN_TICK;
         let mut velocity_z = self.velocity.2 * SECONDS_IN_TICK;
@@ -181,12 +181,12 @@ impl CameraController {
             velocity_z += 0.2 * self.input.z;
         }
 
-        self.velocity.0 = velocity_x / SECONDS_IN_TICK;
-        self.velocity.1 = velocity_y / SECONDS_IN_TICK;
-        self.velocity.2 = velocity_z / SECONDS_IN_TICK;
+        self.velocity.0 = velocity_x * dt / SECONDS_IN_TICK;
+        self.velocity.1 = velocity_y * dt / SECONDS_IN_TICK;
+        self.velocity.2 = velocity_z * dt / SECONDS_IN_TICK;
     }
 
-    pub fn update_camera(&mut self, camera: &mut Camera, blocks: &HashSet<Block>, dt: Duration) {
+    pub fn update_camera(&mut self, camera: &mut Camera, chunk: &Chunk, dt: Duration) {
         let dt = dt.as_secs_f32();
 
         // Add velocity to position
@@ -230,6 +230,6 @@ impl CameraController {
             camera.position.y as i32 - 2,
             camera.position.z as i32,
         );
-        self.on_ground = blocks.contains(&block_below);
+        self.on_ground = chunk.blocks.contains(&block_below);
     }
 }

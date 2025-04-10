@@ -21,7 +21,7 @@ pub mod instance;
 mod texture;
 pub mod vertex;
 
-const RENDER_DISTANCE: u32 = 1;
+const RENDER_DISTANCE: u32 = 2;
 const _RENDERED_CHUNKS: u64 = (RENDER_DISTANCE as u64 * 2 - 1).pow(2);
 pub const MAX_BLOCKS_IN_CHUNK: u64 = (crate::terrain::chunk::CHUNK_SIZE as u64).pow(2) * 128;
 
@@ -86,13 +86,16 @@ impl<'a> ApplicationHandler for StateApplication<'a> {
                     let dt = Instant::now() - state.last_render_time;
                     state.update(dt);
                     let amount_of_ticks_passed =
-                        (Instant::now() - state.last_tick_time).as_millis() / 50;
-                    for _ in 0..amount_of_ticks_passed + 1 {
-                        state.tick_update();
+                        (Instant::now() - state.last_tick_time).as_millis() as f32 / 50.;
+                    if amount_of_ticks_passed >= 1. {
+                        //dbg!(amount_of_ticks_passed);
+                        state.tick_update(amount_of_ticks_passed);
                         state.last_tick_time = Instant::now();
                     }
                     state.render().unwrap();
+
                     state.last_render_time = Instant::now();
+
                     self.state.as_ref().unwrap().window().request_redraw();
                 }
                 _ => {}
@@ -166,7 +169,7 @@ impl<'a> State<'a> {
         let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
         let mut player_controller =
-            crate::movement::PlayerController::new([16., 120., 16.], &config, &device);
+            crate::movement::PlayerController::new([16., 150., 16.], &config, &device);
         player_controller
             .camera_uniform
             .update_view_proj(&player_controller.camera, &player_controller.projection);
@@ -455,7 +458,12 @@ impl<'a> State<'a> {
                 let old_chunk = (new_chunk.0, current_chunk.1 - chunk_position_delta.1);
                 chunk_changes.insert(new_chunk, old_chunk);
             }
+        } else {
+            dbg!("How?");
+            return;
         }
+
+        dbg!(&chunk_changes);
 
         println!("Generating new chunks...");
         for (new_chunk, old_chunk) in chunk_changes {
@@ -478,6 +486,11 @@ impl<'a> State<'a> {
             chunks.insert(new_chunk, chunk);
             chunk_offsets.remove(&old_chunk);
             chunk_offsets.insert(new_chunk, offset);
+
+            println!(
+                "Chunk: {}, {} -> offset: {}",
+                new_chunk.0, new_chunk.1, offset
+            );
 
             let old_size = &chunks
                 .get(&old_chunk)
@@ -506,17 +519,13 @@ impl<'a> State<'a> {
     pub fn update(&mut self, dt: Duration) {
         self.player_controller.controller.update_camera(
             &mut self.player_controller.camera,
-            &self
-                .chunks
+            self.chunks
                 .lock()
                 .unwrap()
-                .values()
-                .flat_map(|chunk| chunk.blocks.clone())
-                .collect(),
+                .get(&self.previous_chunk)
+                .unwrap(),
             dt,
         );
-
-        self.update_terrain();
 
         self.player_controller.camera_uniform.update_view_proj(
             &self.player_controller.camera,
@@ -530,8 +539,9 @@ impl<'a> State<'a> {
         );
     }
 
-    pub fn tick_update(&mut self) {
-        self.player_controller.controller.tick_update_camera()
+    pub fn tick_update(&mut self, ticks: f32) {
+        self.player_controller.controller.tick_update_camera(ticks);
+        self.update_terrain();
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
