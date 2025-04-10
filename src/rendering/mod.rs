@@ -2,7 +2,7 @@ use crate::terrain::chunk::Chunk;
 use block::Block;
 use instance::{Instance, InstanceRaw};
 use pollster::FutureExt;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vertex::Vertex;
@@ -247,7 +247,7 @@ impl<'a> State<'a> {
                 let offset = offset.clone();
                 let handle = std::thread::spawn(move || {
                     let chunk = Chunk::new((x, y), seed);
-                    let position = chunk.position.clone();
+                    let position = chunk.position;
                     let mut offset = offset.lock().unwrap();
                     let size = chunk
                         .blocks
@@ -273,8 +273,8 @@ impl<'a> State<'a> {
             .lock()
             .unwrap()
             .values()
-            .flat_map(|chunk| chunk.blocks.clone())
-            .flat_map(|block| block.as_instances())
+            .flat_map(|chunk| chunk.blocks.iter().map(|block| block.as_instances()))
+            .flatten()
             .collect();
 
         let buffer_size = 40000000;
@@ -443,24 +443,27 @@ impl<'a> State<'a> {
         if chunk_position_delta.0 != 0 {
             for z in 0..RENDER_DISTANCE * 2 - 1 {
                 let new_chunk = (
-                    previous_chunk.0 + chunk_position_delta.0,
+                    previous_chunk.0 + chunk_position_delta.0 * RENDER_DISTANCE as i32,
                     previous_chunk.1 + z as i32 - RENDER_DISTANCE as i32 + 1,
                 );
-                let old_chunk = (current_chunk.0 - chunk_position_delta.0, new_chunk.1);
+                let old_chunk = (
+                    current_chunk.0 - (RENDER_DISTANCE as i32 - 1) * chunk_position_delta.0,
+                    new_chunk.1,
+                );
                 chunk_changes.insert(new_chunk, old_chunk);
             }
         } else if chunk_position_delta.1 != 0 {
             for x in 0..RENDER_DISTANCE * 2 - 1 {
                 let new_chunk = (
                     previous_chunk.0 + x as i32 - RENDER_DISTANCE as i32 + 1,
-                    previous_chunk.1 + chunk_position_delta.1,
+                    previous_chunk.1 + chunk_position_delta.1 * RENDER_DISTANCE as i32,
                 );
-                let old_chunk = (new_chunk.0, current_chunk.1 - chunk_position_delta.1);
+                let old_chunk = (
+                    new_chunk.0,
+                    current_chunk.1 - (RENDER_DISTANCE as i32 - 1) * chunk_position_delta.1,
+                );
                 chunk_changes.insert(new_chunk, old_chunk);
             }
-        } else {
-            dbg!("How?");
-            return;
         }
 
         dbg!(&chunk_changes);
@@ -483,16 +486,19 @@ impl<'a> State<'a> {
             let mut chunk_offsets = chunk_offsets.lock().unwrap();
             let offset = *chunk_offsets.get(&old_chunk).unwrap();
 
-            chunks.insert(new_chunk, chunk);
-            chunk_offsets.remove(&old_chunk);
-            chunk_offsets.insert(new_chunk, offset);
-
             println!(
                 "Chunk: {}, {} -> offset: {}",
                 new_chunk.0, new_chunk.1, offset
             );
 
-            let old_size = &chunks
+            let new_size = chunk
+                .blocks
+                .iter()
+                .flat_map(Block::as_instances)
+                .collect::<Vec<_>>()
+                .len()
+                * std::mem::size_of::<InstanceRaw>();
+            let old_size = chunks
                 .get(&old_chunk)
                 .unwrap()
                 .blocks
@@ -501,19 +507,33 @@ impl<'a> State<'a> {
                 .collect::<Vec<_>>()
                 .len()
                 * std::mem::size_of::<InstanceRaw>();
-            let empty_slice = bytemuck::zeroed_slice_box(old_size * 8);
+            let empty_slice = bytemuck::zeroed_slice_box(old_size);
             // Remove old chunk
             queue.write_buffer(&buffer, offset, &empty_slice);
-            // Write new chunk
-            queue.write_buffer(&buffer, offset, bytemuck::cast_slice(&instances));
+            // Write new chunk if it doesn't override other things
+            if new_size <= old_size {
+                queue.write_buffer(&buffer, offset, bytemuck::cast_slice(&instances));
+                chunk_offsets.insert(new_chunk, offset);
+                chunk_offsets.remove(&old_chunk);
+            } else {
+                println!("New chunk too large!");
+                let offset = instances.len() * std::mem::size_of::<InstanceRaw>();
+
+                queue.write_buffer(&buffer, offset as u64, bytemuck::cast_slice(&instances));
+                chunk_offsets.insert(new_chunk, offset as u64);
+                chunk_offsets.remove(&old_chunk);
+            }
+            chunks.remove(&old_chunk);
+            chunks.insert(new_chunk, chunk);
         }
 
-        let blocks: HashSet<Block> = chunks
+        let new_instances: Vec<Instance> = chunks
             .values()
-            .flat_map(|chunk| chunk.blocks.clone())
+            .flat_map(|chunk| chunk.blocks.iter().map(|block| block.as_instances()))
+            .flatten()
             .collect();
         let mut instances = instances.lock().unwrap();
-        *instances = blocks.iter().flat_map(Block::as_instances).collect();
+        *instances = new_instances;
     }
 
     pub fn update(&mut self, dt: Duration) {
