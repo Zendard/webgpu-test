@@ -6,7 +6,7 @@ use std::time::Duration;
 use winit::event::ElementState;
 use winit::keyboard::KeyCode;
 const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2 - 0.0001;
-const PLAYER_ACCELERATION: f32 = 1.;
+const PLAYER_ACCELERATION: f32 = 3.;
 const SLIPPERINESS: f32 = 0.546;
 const GRAVITY: f32 = 0.08;
 const JUMP_ACCELERATION: f32 = 0.42;

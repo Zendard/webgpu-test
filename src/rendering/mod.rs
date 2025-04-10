@@ -428,50 +428,38 @@ impl<'a> State<'a> {
         queue: Queue,
         buffer: wgpu::Buffer,
     ) {
-        let chunks = chunks.lock().unwrap();
+        let mut chunks = chunks.lock().unwrap();
         let mut chunk_changes: HashMap<(i32, i32), (i32, i32)> =
             HashMap::with_capacity((RENDER_DISTANCE * 2 - 1) as usize);
-        if current_chunk.0 > previous_chunk.0 {
-            for z in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
+
+        let chunk_position_delta = (
+            current_chunk.0 - previous_chunk.0,
+            current_chunk.1 - previous_chunk.1,
+        );
+
+        if chunk_position_delta.0 != 0 {
+            for z in 0..RENDER_DISTANCE * 2 - 1 {
                 let new_chunk = (
-                    (current_chunk.0 + RENDER_DISTANCE as i32 - 1),
-                    current_chunk.1 + z,
+                    previous_chunk.0 + chunk_position_delta.0,
+                    previous_chunk.1 + z as i32 - RENDER_DISTANCE as i32 + 1,
                 );
-                let old_chunk = (current_chunk.0 - RENDER_DISTANCE as i32, new_chunk.1);
+                let old_chunk = (current_chunk.0 - chunk_position_delta.0, new_chunk.1);
                 chunk_changes.insert(new_chunk, old_chunk);
             }
-        } else if current_chunk.0 < previous_chunk.0 {
-            for z in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
+        } else if chunk_position_delta.1 != 0 {
+            for x in 0..RENDER_DISTANCE * 2 - 1 {
                 let new_chunk = (
-                    (current_chunk.0 - RENDER_DISTANCE as i32 + 1),
-                    current_chunk.1 + z,
+                    previous_chunk.0 + x as i32 - RENDER_DISTANCE as i32 + 1,
+                    previous_chunk.1 + chunk_position_delta.1,
                 );
-                let old_chunk = (current_chunk.0 + RENDER_DISTANCE as i32, new_chunk.1);
+                let old_chunk = (new_chunk.0, current_chunk.1 - chunk_position_delta.1);
                 chunk_changes.insert(new_chunk, old_chunk);
             }
-        } else if current_chunk.1 > previous_chunk.1 {
-            for x in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
-                let new_chunk = (
-                    current_chunk.0 + x,
-                    (current_chunk.1 + RENDER_DISTANCE as i32 - 1),
-                );
-                let old_chunk = (current_chunk.0 - RENDER_DISTANCE as i32, new_chunk.1);
-                chunk_changes.insert(new_chunk, old_chunk);
-            }
-        } else {
-            for x in (-(RENDER_DISTANCE as i32) + 1)..RENDER_DISTANCE as i32 {
-                let new_chunk = (
-                    current_chunk.0 + x,
-                    (current_chunk.1 - RENDER_DISTANCE as i32 + 1),
-                );
-                let old_chunk = (current_chunk.0 + RENDER_DISTANCE as i32, new_chunk.1);
-                chunk_changes.insert(new_chunk, old_chunk);
-            }
-        };
+        }
 
         println!("Generating new chunks...");
         for (new_chunk, old_chunk) in chunk_changes {
-            dbg!(&new_chunk, &old_chunk);
+            dbg!(&chunk_position_delta, &new_chunk, &old_chunk);
             let chunk = Chunk::new(new_chunk, seed);
             let instances: Vec<InstanceRaw> = chunk
                 .blocks
@@ -484,8 +472,26 @@ impl<'a> State<'a> {
                         .collect::<Vec<_>>()
                 })
                 .collect();
-            let chunk_offsets = chunk_offsets.lock().unwrap();
+            let mut chunk_offsets = chunk_offsets.lock().unwrap();
             let offset = *chunk_offsets.get(&old_chunk).unwrap();
+
+            chunks.insert(new_chunk, chunk);
+            chunk_offsets.remove(&old_chunk);
+            chunk_offsets.insert(new_chunk, offset);
+
+            let old_size = &chunks
+                .get(&old_chunk)
+                .unwrap()
+                .blocks
+                .iter()
+                .flat_map(Block::as_instances)
+                .collect::<Vec<_>>()
+                .len()
+                * std::mem::size_of::<InstanceRaw>();
+            let empty_slice = bytemuck::zeroed_slice_box(old_size * 8);
+            // Remove old chunk
+            queue.write_buffer(&buffer, offset, &empty_slice);
+            // Write new chunk
             queue.write_buffer(&buffer, offset, bytemuck::cast_slice(&instances));
         }
 
