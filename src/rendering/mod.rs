@@ -1,7 +1,9 @@
+use crate::terrain;
 use pollster::FutureExt;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use vertex::Vertex;
 use wgpu::util::DeviceExt;
 use wgpu::Queue;
 use winit::application::ApplicationHandler;
@@ -10,12 +12,11 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use crate::terrain;
-
 pub mod block;
 pub mod camera;
 mod hardware;
 mod texture;
+pub mod vertex;
 
 const RENDER_DISTANCE: u32 = 5;
 const _RENDERED_CHUNKS: u64 = (RENDER_DISTANCE as u64 * 2 - 1).pow(2);
@@ -30,13 +31,6 @@ impl<'a> StateApplication<'a> {
     pub fn new(seed: u32) -> Self {
         StateApplication { state: None, seed }
     }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Vertex {
-    pub position: [f32; 3],
-    pub tex_coords: [f32; 2],
 }
 
 impl<'a> ApplicationHandler for StateApplication<'a> {
@@ -517,27 +511,6 @@ impl<'a> State<'a> {
         output.present();
 
         Ok(())
-    }
-}
-
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-            ],
-        }
     }
 }
 

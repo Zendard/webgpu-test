@@ -12,7 +12,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .as_secs()
         .try_into()
         .unwrap();
-    // return Ok(());
 
     let mut window_state = rendering::StateApplication::new(seed);
     event_loop.run_app(&mut window_state)?;
