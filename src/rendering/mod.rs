@@ -21,7 +21,7 @@ pub mod instance;
 mod texture;
 pub mod vertex;
 
-const RENDER_DISTANCE: u32 = 2;
+const RENDER_DISTANCE: u32 = 1;
 pub const MAX_FACES_IN_CHUNK: u64 = (crate::terrain::chunk::CHUNK_SIZE as u64).pow(2) * 128 / 2 * 6;
 const CHUNK_BUFFER_SIZE: u64 = MAX_FACES_IN_CHUNK * std::mem::size_of::<InstanceRaw>() as u64;
 
@@ -460,7 +460,7 @@ impl<'a> State<'a> {
                     previous_chunk.1 + z as i32 - RENDER_DISTANCE as i32 + 1,
                 );
                 let old_chunk = (
-                    current_chunk.0 - (RENDER_DISTANCE as i32 - 1) * chunk_position_delta.0,
+                    current_chunk.0 - (RENDER_DISTANCE as i32) * chunk_position_delta.0,
                     new_chunk.1,
                 );
                 chunk_changes.insert(new_chunk, old_chunk);
@@ -473,7 +473,7 @@ impl<'a> State<'a> {
                 );
                 let old_chunk = (
                     new_chunk.0,
-                    current_chunk.1 - (RENDER_DISTANCE as i32 - 1) * chunk_position_delta.1,
+                    current_chunk.1 - (RENDER_DISTANCE as i32) * chunk_position_delta.1,
                 );
                 chunk_changes.insert(new_chunk, old_chunk);
             }

@@ -22,4 +22,4 @@
     (0,2) -> (0,3) : (0,-1) -> (0,5)
 
     new_chunk = previous_chunk + RENDER_DISTANCE * chunk_delta
-    old_chunk = current_chunk - (RENDER_DISTANCE-1) * chunk_delta
+    old_chunk = current_chunk - (RENDER_DISTANCE) * chunk_delta
