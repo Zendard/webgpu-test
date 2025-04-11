@@ -22,21 +22,21 @@ mod texture;
 pub mod vertex;
 
 const RENDER_DISTANCE: u32 = 2;
-const _RENDERED_CHUNKS: u64 = (RENDER_DISTANCE as u64 * 2 - 1).pow(2);
-pub const MAX_BLOCKS_IN_CHUNK: u64 = (crate::terrain::chunk::CHUNK_SIZE as u64).pow(2) * 128;
+pub const MAX_FACES_IN_CHUNK: u64 = (crate::terrain::chunk::CHUNK_SIZE as u64).pow(2) * 128 / 2 * 6;
+const CHUNK_BUFFER_SIZE: u64 = MAX_FACES_IN_CHUNK * std::mem::size_of::<InstanceRaw>() as u64;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
     pub seed: u32,
 }
 
-impl<'a> StateApplication<'a> {
+impl StateApplication<'_> {
     pub fn new(seed: u32) -> Self {
         StateApplication { state: None, seed }
     }
 }
 
-impl<'a> ApplicationHandler for StateApplication<'a> {
+impl ApplicationHandler for StateApplication<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = event_loop
             .create_window(Window::default_attributes().with_title("WGPU test"))
@@ -250,16 +250,9 @@ impl<'a> State<'a> {
                     let chunk = Chunk::new((x, y), seed);
                     let position = chunk.position;
                     let mut offset = offset.lock().unwrap();
-                    let size = chunk
-                        .blocks
-                        .iter()
-                        .flat_map(Block::as_instances)
-                        .collect::<Vec<_>>()
-                        .len() as u64
-                        * std::mem::size_of::<InstanceRaw>() as u64;
                     chunks.lock().unwrap().insert(position, chunk);
                     chunk_offsets.lock().unwrap().insert(position, *offset);
-                    *offset += size;
+                    *offset += CHUNK_BUFFER_SIZE;
                 });
                 handles.push(handle);
             }
@@ -278,7 +271,7 @@ impl<'a> State<'a> {
             .flatten()
             .collect();
 
-        let buffer_size = 40000000;
+        let buffer_size = (RENDER_DISTANCE as u64 * 2 - 1).pow(2) * CHUNK_BUFFER_SIZE;
         let instance_buffer_0 = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
             mapped_at_creation: false,
@@ -305,6 +298,11 @@ impl<'a> State<'a> {
 
             queue.write_buffer(
                 &instance_buffer_0,
+                *offset,
+                bytemuck::cast_slice(&instances),
+            );
+            queue.write_buffer(
+                &instance_buffer_1,
                 *offset,
                 bytemuck::cast_slice(&instances),
             );
@@ -517,23 +515,15 @@ impl<'a> State<'a> {
                 .iter()
                 .flat_map(Block::as_instances)
                 .collect::<Vec<_>>()
-                .len()
-                * std::mem::size_of::<InstanceRaw>();
-            let old_size = chunks
-                .get(&old_chunk)
-                .unwrap()
-                .blocks
-                .iter()
-                .flat_map(Block::as_instances)
-                .collect::<Vec<_>>()
-                .len()
-                * std::mem::size_of::<InstanceRaw>();
-            let empty_slice = bytemuck::zeroed_slice_box(old_size);
+                .len() as u64
+                * std::mem::size_of::<InstanceRaw>() as u64;
+
+            let empty_slice = bytemuck::zeroed_slice_box(CHUNK_BUFFER_SIZE as usize);
 
             // Remove old chunk
             queue.write_buffer(&buffers[buffer_to_write], offset, &empty_slice);
             // Write new chunk if it doesn't override other things
-            if new_size <= old_size {
+            if new_size <= CHUNK_BUFFER_SIZE {
                 queue.write_buffer(
                     &buffers[buffer_to_write],
                     offset,
@@ -543,15 +533,6 @@ impl<'a> State<'a> {
                 chunk_offsets.remove(&old_chunk);
             } else {
                 println!("New chunk too large!");
-                let offset = instances.len() * std::mem::size_of::<InstanceRaw>();
-
-                queue.write_buffer(
-                    &buffers[buffer_to_write],
-                    offset as u64,
-                    bytemuck::cast_slice(&instances),
-                );
-                chunk_offsets.insert(new_chunk, offset as u64);
-                chunk_offsets.remove(&old_chunk);
             }
             chunks.remove(&old_chunk);
             chunks.insert(new_chunk, chunk);
