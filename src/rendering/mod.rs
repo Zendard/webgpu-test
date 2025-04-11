@@ -557,7 +557,7 @@ impl<'a> State<'a> {
             chunks.insert(new_chunk, chunk);
         }
         drop(queue);
-        //*active_buffer = buffer_to_write as u8;
+        *active_buffer = buffer_to_write as u8;
 
         let new_instances: Vec<Instance> = chunks
             .values()
