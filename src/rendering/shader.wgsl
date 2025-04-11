@@ -22,8 +22,6 @@ struct VertexOutput {
   @location(0) tex_coords: vec2<f32>
 };
 
-
-
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let model_matrix = mat4x4<f32>(

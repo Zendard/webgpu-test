@@ -129,7 +129,8 @@ pub struct State<'a> {
     depth_texture: texture::RawTexture,
 
     instances: Arc<Mutex<Vec<Instance>>>,
-    instance_buffer: wgpu::Buffer,
+    instance_buffers: Arc<Vec<wgpu::Buffer>>,
+    active_instance_buffer: Arc<Mutex<u8>>,
 }
 
 impl<'a> State<'a> {
@@ -278,7 +279,13 @@ impl<'a> State<'a> {
             .collect();
 
         let buffer_size = 40000000;
-        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let instance_buffer_0 = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Instance Buffer"),
+            mapped_at_creation: false,
+            size: buffer_size,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        let instance_buffer_1 = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Buffer"),
             mapped_at_creation: false,
             size: buffer_size,
@@ -296,7 +303,11 @@ impl<'a> State<'a> {
                 .map(|instance| instance.as_raw())
                 .collect::<Vec<_>>();
 
-            queue.write_buffer(&instance_buffer, *offset, bytemuck::cast_slice(&instances));
+            queue.write_buffer(
+                &instance_buffer_0,
+                *offset,
+                bytemuck::cast_slice(&instances),
+            );
         }
 
         let instances = Arc::new(Mutex::new(instances));
@@ -321,7 +332,8 @@ impl<'a> State<'a> {
             last_render_time: Instant::now(),
             last_tick_time: Instant::now(),
             instances,
-            instance_buffer,
+            instance_buffers: vec![instance_buffer_0, instance_buffer_1].into(),
+            active_instance_buffer: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -403,7 +415,8 @@ impl<'a> State<'a> {
         let chunk_offsets = self.chunk_offsets.clone();
         let instances = self.instances.clone();
         let queue = self.queue.clone();
-        let instance_buffer = self.instance_buffer.clone();
+        let instance_buffers = self.instance_buffers.clone();
+        let active_buffer = self.active_instance_buffer.clone();
 
         self.previous_chunk = current_chunk;
 
@@ -416,7 +429,8 @@ impl<'a> State<'a> {
                 chunk_offsets,
                 instances,
                 queue,
-                instance_buffer,
+                instance_buffers,
+                active_buffer,
             )
         });
     }
@@ -429,7 +443,8 @@ impl<'a> State<'a> {
         chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>>,
         instances: Arc<Mutex<Vec<Instance>>>,
         queue: Queue,
-        buffer: wgpu::Buffer,
+        buffers: Arc<Vec<wgpu::Buffer>>,
+        active_buffer: Arc<Mutex<u8>>,
     ) {
         let mut chunks = chunks.lock().unwrap();
         let mut chunk_changes: HashMap<(i32, i32), (i32, i32)> =
@@ -467,6 +482,12 @@ impl<'a> State<'a> {
         }
 
         dbg!(&chunk_changes);
+
+        let mut active_buffer = active_buffer.lock().unwrap();
+        let buffer_to_write = match *active_buffer {
+            0 => 1,
+            _ => 0,
+        };
 
         println!("Generating new chunks...");
         for (new_chunk, old_chunk) in chunk_changes {
@@ -508,24 +529,35 @@ impl<'a> State<'a> {
                 .len()
                 * std::mem::size_of::<InstanceRaw>();
             let empty_slice = bytemuck::zeroed_slice_box(old_size);
+
             // Remove old chunk
-            queue.write_buffer(&buffer, offset, &empty_slice);
+            queue.write_buffer(&buffers[buffer_to_write], offset, &empty_slice);
             // Write new chunk if it doesn't override other things
             if new_size <= old_size {
-                queue.write_buffer(&buffer, offset, bytemuck::cast_slice(&instances));
+                queue.write_buffer(
+                    &buffers[buffer_to_write],
+                    offset,
+                    bytemuck::cast_slice(&instances),
+                );
                 chunk_offsets.insert(new_chunk, offset);
                 chunk_offsets.remove(&old_chunk);
             } else {
                 println!("New chunk too large!");
                 let offset = instances.len() * std::mem::size_of::<InstanceRaw>();
 
-                queue.write_buffer(&buffer, offset as u64, bytemuck::cast_slice(&instances));
+                queue.write_buffer(
+                    &buffers[buffer_to_write],
+                    offset as u64,
+                    bytemuck::cast_slice(&instances),
+                );
                 chunk_offsets.insert(new_chunk, offset as u64);
                 chunk_offsets.remove(&old_chunk);
             }
             chunks.remove(&old_chunk);
             chunks.insert(new_chunk, chunk);
         }
+        drop(queue);
+        //*active_buffer = buffer_to_write as u8;
 
         let new_instances: Vec<Instance> = chunks
             .values()
@@ -610,8 +642,9 @@ impl<'a> State<'a> {
         render_pass.set_bind_group(0, &self.diffuse_texture.bind_group, &[]);
         render_pass.set_bind_group(1, &self.player_controller.camera.bind_group, &[]);
 
-        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        let active_buffer = *self.active_instance_buffer.lock().unwrap();
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.instance_buffers[active_buffer as usize].slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
         render_pass.draw_indexed(0..self.num_indices, 0, 0..instances.len() as _);
