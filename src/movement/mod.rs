@@ -28,7 +28,7 @@ impl PlayerController {
         device: &wgpu::Device,
     ) -> Self {
         let camera_uniform = CameraUniform::new();
-        let camera = Camera::new(position, Rad(0.), Rad(110.), device, camera_uniform);
+        let camera = Camera::new(position, Rad(0.), Rad(-90.), device, camera_uniform);
         let projection = Projection::new(config.width, config.height, Deg(90.), 0.1, 100.);
         let controller = CameraController::new(50.);
 
@@ -76,7 +76,7 @@ impl CameraController {
             movement: (0., 0., 0.),
             velocity: (0., 0., 0.),
             on_ground: true,
-            gravity_enabled: true,
+            gravity_enabled: false,
             rotate: (0., 0.),
             sensitivity,
         }
@@ -226,9 +226,9 @@ impl CameraController {
 
         // Check if we are on the ground
         let block_below = Block::new(
-            camera.position.x as i32,
-            camera.position.y as i32 - 2,
-            camera.position.z as i32,
+            camera.position.x as u8,
+            camera.position.y as u8 - 2,
+            camera.position.z as u8,
         );
         self.on_ground = chunk.blocks.contains(&block_below);
     }
