@@ -5,6 +5,9 @@ struct Camera {
 @group(1) @binding(0)
 var<uniform> camera: Camera;
 
+@group(2) @binding(0)
+var<uniform> chunk: vec2<i32>;
+
 struct VertexInput {
   @location(0) position: vec3<f32>,
   @location(1) tex_coords: vec2<f32>,
@@ -34,8 +37,8 @@ const FACE_TO_SIN_COS_Y = array<f32, 12>(
   1, 0,
   0, 1,
   0, 1,
-  0, 1,
   0,-1,
+  0, 1,
 );
 
 const TOP_FACE_TRANSLATION = mat4x4<f32>(
@@ -49,14 +52,14 @@ const FRONT_FACE_TRANSLATION = mat4x4<f32>(
   1, 0, 0, 0,
   0, 1, 0, 0,
   0, 0, 1, 0,
-  0, -1, 0, 1,
+  -1, -1, 0, 1,
 );
 
 const BACK_FACE_TRANSLATION = mat4x4<f32>(
   1, 0, 0, 0,
   0, 1, 0, 0,
   0, 0, 1, 0,
-  -1, 0, 0, 1,
+  0, 0, 0, 1,
 );
 
 @vertex
@@ -93,8 +96,15 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     f32(position_x), f32(position_y), f32(position_z), 1,
   );
 
+  let chunk_translation_matrix = mat4x4<f32>(
+    1           , 0, 0           , 0,
+    0           , 1, 0           , 0,
+    0           , 0, 1           , 0,
+    f32(chunk.x) * 32, 0, f32(chunk.y) * 32, 1,
+  );
 
-  var tranform_matrix = translation_matrix * rotation_matrix_y * rotation_matrix_x;
+
+  var tranform_matrix = chunk_translation_matrix * translation_matrix * rotation_matrix_x * rotation_matrix_y;
 
   // Top face needs to be moved up
   if face == 2 {

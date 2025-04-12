@@ -117,6 +117,11 @@ pub struct State<'a> {
     chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>>,
     chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>>,
     previous_chunk: (i32, i32),
+    current_chunk_buffer: wgpu::Buffer,
+    #[allow(unused)]
+    current_chunk_bind_group: wgpu::BindGroup,
+    #[allow(unused)]
+    current_chunk_bind_group_layout: wgpu::BindGroupLayout,
     seed: u32,
     last_render_time: Instant,
     last_tick_time: Instant,
@@ -180,6 +185,33 @@ impl<'a> State<'a> {
             player_controller.camera.position.z as i32 / 32,
         );
         dbg!(current_chunk);
+        let current_chunk_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Current chunk buffer"),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            contents: bytemuck::cast_slice(&[current_chunk.0, current_chunk.1]),
+        });
+        let current_chunk_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Current chunk bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let current_chunk_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Current chunk bind group"),
+            layout: &current_chunk_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: current_chunk_buffer.as_entire_binding(),
+            }],
+        });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -187,6 +219,7 @@ impl<'a> State<'a> {
                 bind_group_layouts: &[
                     &diffuse_texture.bind_group_layout,
                     &player_controller.camera.bind_group_layout,
+                    &current_chunk_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -214,8 +247,8 @@ impl<'a> State<'a> {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                //cull_mode: Some(wgpu::Face::Back),
-                cull_mode: None,
+                cull_mode: Some(wgpu::Face::Back),
+                //cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -327,6 +360,9 @@ impl<'a> State<'a> {
             chunks,
             chunk_offsets,
             previous_chunk: (0, 0),
+            current_chunk_buffer,
+            current_chunk_bind_group,
+            current_chunk_bind_group_layout,
             seed,
             last_render_time: Instant::now(),
             last_tick_time: Instant::now(),
@@ -418,6 +454,11 @@ impl<'a> State<'a> {
         let active_buffer = self.active_instance_buffer.clone();
 
         self.previous_chunk = current_chunk;
+        self.queue.write_buffer(
+            &self.current_chunk_buffer,
+            0,
+            bytemuck::cast_slice(&[current_chunk.0, current_chunk.1]),
+        );
 
         std::thread::spawn(move || {
             State::generate_new_chunks(
@@ -623,6 +664,7 @@ impl<'a> State<'a> {
 
         render_pass.set_bind_group(0, &self.diffuse_texture.bind_group, &[]);
         render_pass.set_bind_group(1, &self.player_controller.camera.bind_group, &[]);
+        render_pass.set_bind_group(2, &self.current_chunk_bind_group, &[]);
 
         let active_buffer = *self.active_instance_buffer.lock().unwrap();
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
