@@ -19,7 +19,11 @@ pub fn generate_terrain(start: (i32, i32, i32), end: (i32, i32, i32), seed: u32)
         let blocks = blocks.clone();
         for y in start.1..end.1 {
             for z in start.2..end.2 {
-                let mut block = Block::new(x, y, z);
+                let mut block = Block::new(
+                    (x - start.0).try_into().unwrap(),
+                    (y - start.1).try_into().unwrap(),
+                    (z - start.2).try_into().unwrap(),
+                );
                 let add_block = check_block((x, y, z), perlin);
 
                 if !add_block {

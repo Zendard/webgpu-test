@@ -210,6 +210,7 @@ impl CameraController {
         // Rotate
         camera.yaw += Rad(self.rotate.0) * self.sensitivity * dt;
         camera.pitch += Rad(-self.rotate.1) * self.sensitivity * dt;
+        //dbg!(camera.yaw);
 
         // If process_mouse isn't called every frame, these values
         // will not get set to zero, and the camera will rotate
