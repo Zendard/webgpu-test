@@ -19,7 +19,7 @@ pub mod instance;
 mod texture;
 pub mod vertex;
 
-const RENDER_DISTANCE: u32 = 1;
+const RENDER_DISTANCE: u32 = 3;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -354,6 +354,7 @@ impl<'a> State<'a> {
         if current_chunk == self.previous_chunk {
             return;
         }
+        self.player_controller.controller.velocity = (0., 0., 0.);
         let previous_chunk = self.previous_chunk;
         let seed = self.seed;
         let chunks = self.chunks.clone();

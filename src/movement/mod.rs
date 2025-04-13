@@ -45,7 +45,7 @@ impl PlayerController {
 pub struct CameraController {
     input: KeyboardInput,
     movement: (f32, f32, f32),
-    velocity: (f32, f32, f32),
+    pub velocity: (f32, f32, f32),
     on_ground: bool,
     gravity_enabled: bool,
     rotate: (f32, f32),
@@ -226,11 +226,10 @@ impl CameraController {
         }
 
         // Check if we are on the ground
-        let block_below = Block::new(
-            camera.position.x as u8,
-            camera.position.y as u8 - 2,
-            camera.position.z as u8,
-        );
+        let block_x = camera.position.x.floor() as u8;
+        let block_y = camera.position.y.floor() as u8 - 3;
+        let block_z = camera.position.z.floor() as u8;
+        let block_below = Block::new(block_x, block_y, block_z);
         self.on_ground = chunk.blocks.contains(&block_below);
     }
 }
