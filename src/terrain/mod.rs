@@ -9,7 +9,7 @@ pub mod chunk;
 
 const BASE_HEIGTH: f64 = 64.;
 const HEIGTH_BIAS: f64 = 0.1;
-const TERRAIN_SCALING_FACTOR: (f64, f64, f64) = (32., 32., 32.);
+const TERRAIN_SCALING_FACTOR: (f64, f64, f64) = (16., 16., 16.);
 
 pub fn generate_terrain(start: (i32, i32, i32), end: (i32, i32, i32), seed: u32) -> HashSet<Block> {
     let blocks = Arc::new(Mutex::new(HashSet::new()));

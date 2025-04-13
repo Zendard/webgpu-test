@@ -16,17 +16,17 @@ pub struct Instance {
 
 impl Instance {
     pub fn as_raw(&self) -> InstanceRaw {
-        let raw_description: u32 = ((self.position.x as u32) << 12)
+        let raw_description: u32 = ((self.position.x as u32) << 14)
             + ((self.position.y as u32) << 6)
             + (self.position.z as u32)
-            + ((self.face as u32) << 18);
+            + ((self.face as u32) << 20);
         InstanceRaw(raw_description)
     }
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-// fffxxxxxxyyyyyyzzzzzz
+// fffxxxxxxyyyyyyyyzzzzzz
 // f = face         | x = x position in chunk
 // 000 -> left      | y = y position in chunk
 // 001 -> right     | z = z position in chunk
