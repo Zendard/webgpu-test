@@ -1,7 +1,4 @@
 # Problems
-## Wrong chunks get deleted 
-    See below chunks calculation
-
 ## Falling into ground
     Change on_ground checking function
 
