@@ -1,5 +1,4 @@
 use crate::terrain::chunk::Chunk;
-use block::Block;
 use instance::{Instance, InstanceRaw};
 use pollster::FutureExt;
 use std::collections::HashMap;
@@ -7,7 +6,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vertex::Vertex;
 use wgpu::util::DeviceExt;
-use wgpu::Queue;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
@@ -22,8 +20,6 @@ mod texture;
 pub mod vertex;
 
 const RENDER_DISTANCE: u32 = 1;
-pub const MAX_FACES_IN_CHUNK: u64 = (crate::terrain::chunk::CHUNK_SIZE as u64).pow(2) * 128 / 2 * 6;
-const CHUNK_BUFFER_SIZE: u64 = MAX_FACES_IN_CHUNK * std::mem::size_of::<InstanceRaw>() as u64;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -115,27 +111,16 @@ pub struct State<'a> {
 
     player_controller: crate::movement::PlayerController,
     chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>>,
-    chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>>,
     previous_chunk: (i32, i32),
-    current_chunk_buffer: wgpu::Buffer,
-    #[allow(unused)]
-    current_chunk_bind_group: wgpu::BindGroup,
-    #[allow(unused)]
-    current_chunk_bind_group_layout: wgpu::BindGroupLayout,
     seed: u32,
     last_render_time: Instant,
     last_tick_time: Instant,
 
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    num_indices: u32,
 
     diffuse_texture: texture::Texture,
     depth_texture: texture::RawTexture,
-
-    instances: Arc<Mutex<Vec<Instance>>>,
-    instance_buffers: Arc<Vec<wgpu::Buffer>>,
-    active_instance_buffer: Arc<Mutex<u8>>,
 }
 
 impl<'a> State<'a> {
@@ -172,7 +157,6 @@ impl<'a> State<'a> {
             contents: bytemuck::cast_slice::<u16, u8>(self::block::FACE_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let num_indices = self::block::FACE_INDICES.len().try_into().unwrap();
 
         let mut player_controller =
             crate::movement::PlayerController::new([16., 150., 16.], &config, &device);
@@ -185,11 +169,7 @@ impl<'a> State<'a> {
             player_controller.camera.position.z as i32 / 32,
         );
         dbg!(current_chunk);
-        let current_chunk_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Current chunk buffer"),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            contents: bytemuck::cast_slice(&[current_chunk.0, current_chunk.1]),
-        });
+
         let current_chunk_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Current chunk bind group layout"),
@@ -204,14 +184,6 @@ impl<'a> State<'a> {
                     count: None,
                 }],
             });
-        let current_chunk_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Current chunk bind group"),
-            layout: &current_chunk_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: current_chunk_buffer.as_entire_binding(),
-            }],
-        });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -270,23 +242,16 @@ impl<'a> State<'a> {
         });
 
         let chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>> = Arc::new(Mutex::new(HashMap::new()));
-        let chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>> =
-            Arc::new(Mutex::new(HashMap::new()));
         let mut handles = Vec::new();
-        let offset = Arc::new(Mutex::new(0));
         println!("Generating terrain...");
         for x in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
             for y in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
                 let chunks = chunks.clone();
-                let chunk_offsets = chunk_offsets.clone();
-                let offset = offset.clone();
+                let device = device.clone();
                 let handle = std::thread::spawn(move || {
-                    let chunk = Chunk::new((x, y), seed);
+                    let chunk = Chunk::new(&device, (x, y), seed);
                     let position = chunk.position;
-                    let mut offset = offset.lock().unwrap();
                     chunks.lock().unwrap().insert(position, chunk);
-                    chunk_offsets.lock().unwrap().insert(position, *offset);
-                    *offset += CHUNK_BUFFER_SIZE;
                 });
                 handles.push(handle);
             }
@@ -297,53 +262,6 @@ impl<'a> State<'a> {
         }
         println!("Done");
 
-        let instances: Vec<Instance> = chunks
-            .lock()
-            .unwrap()
-            .values()
-            .flat_map(|chunk| chunk.blocks.iter().map(|block| block.as_instances()))
-            .flatten()
-            .collect();
-
-        let buffer_size = (RENDER_DISTANCE as u64 * 2 - 1).pow(2) * CHUNK_BUFFER_SIZE;
-        let instance_buffer_0 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Instance Buffer"),
-            mapped_at_creation: false,
-            size: buffer_size,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-        let instance_buffer_1 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Instance Buffer"),
-            mapped_at_creation: false,
-            size: buffer_size,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-
-        println!("Copying to GPU...");
-        for (position, offset) in chunk_offsets.lock().unwrap().iter() {
-            let chunks = chunks.lock().unwrap();
-            let chunk = chunks.get(position).unwrap();
-            let instances = chunk
-                .blocks
-                .iter()
-                .flat_map(Block::as_instances)
-                .map(|instance| instance.as_raw())
-                .collect::<Vec<_>>();
-
-            queue.write_buffer(
-                &instance_buffer_0,
-                *offset,
-                bytemuck::cast_slice(&instances),
-            );
-            queue.write_buffer(
-                &instance_buffer_1,
-                *offset,
-                bytemuck::cast_slice(&instances),
-            );
-        }
-
-        let instances = Arc::new(Mutex::new(instances));
-
         Self {
             surface,
             device,
@@ -353,22 +271,14 @@ impl<'a> State<'a> {
             render_pipeline,
             vertex_buffer,
             index_buffer,
-            num_indices,
             diffuse_texture,
             depth_texture,
             player_controller,
             chunks,
-            chunk_offsets,
             previous_chunk: (0, 0),
-            current_chunk_buffer,
-            current_chunk_bind_group,
-            current_chunk_bind_group_layout,
             seed,
             last_render_time: Instant::now(),
             last_tick_time: Instant::now(),
-            instances,
-            instance_buffers: vec![instance_buffer_0, instance_buffer_1].into(),
-            active_instance_buffer: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -447,32 +357,12 @@ impl<'a> State<'a> {
         let previous_chunk = self.previous_chunk;
         let seed = self.seed;
         let chunks = self.chunks.clone();
-        let chunk_offsets = self.chunk_offsets.clone();
-        let instances = self.instances.clone();
-        let queue = self.queue.clone();
-        let instance_buffers = self.instance_buffers.clone();
-        let active_buffer = self.active_instance_buffer.clone();
-
-        self.previous_chunk = current_chunk;
-        self.queue.write_buffer(
-            &self.current_chunk_buffer,
-            0,
-            bytemuck::cast_slice(&[current_chunk.0, current_chunk.1]),
-        );
+        let device = self.device.clone();
 
         std::thread::spawn(move || {
-            State::generate_new_chunks(
-                current_chunk,
-                previous_chunk,
-                seed,
-                chunks,
-                chunk_offsets,
-                instances,
-                queue,
-                instance_buffers,
-                active_buffer,
-            )
+            State::generate_new_chunks(current_chunk, previous_chunk, seed, chunks, &device)
         });
+        self.previous_chunk = current_chunk;
     }
 
     fn generate_new_chunks(
@@ -480,11 +370,7 @@ impl<'a> State<'a> {
         previous_chunk: (i32, i32),
         seed: u32,
         chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>>,
-        chunk_offsets: Arc<Mutex<HashMap<(i32, i32), u64>>>,
-        instances: Arc<Mutex<Vec<Instance>>>,
-        queue: Queue,
-        buffers: Arc<Vec<wgpu::Buffer>>,
-        active_buffer: Arc<Mutex<u8>>,
+        device: &wgpu::Device,
     ) {
         let mut chunks = chunks.lock().unwrap();
         let mut chunk_changes: HashMap<(i32, i32), (i32, i32)> =
@@ -523,72 +409,13 @@ impl<'a> State<'a> {
 
         dbg!(&chunk_changes);
 
-        let mut active_buffer = active_buffer.lock().unwrap();
-        let buffer_to_write = match *active_buffer {
-            0 => 1,
-            _ => 0,
-        };
-
         println!("Generating new chunks...");
         for (new_chunk, old_chunk) in chunk_changes {
             dbg!(&chunk_position_delta, &new_chunk, &old_chunk);
-            let chunk = Chunk::new(new_chunk, seed);
-            let instances: Vec<InstanceRaw> = chunk
-                .blocks
-                .iter()
-                .flat_map(|block| {
-                    block
-                        .as_instances()
-                        .iter()
-                        .map(Instance::as_raw)
-                        .collect::<Vec<_>>()
-                })
-                .collect();
-            let mut chunk_offsets = chunk_offsets.lock().unwrap();
-            let offset = *chunk_offsets.get(&old_chunk).unwrap();
-
-            println!(
-                "Chunk: {}, {} -> offset: {}",
-                new_chunk.0, new_chunk.1, offset
-            );
-
-            let new_size = chunk
-                .blocks
-                .iter()
-                .flat_map(Block::as_instances)
-                .collect::<Vec<_>>()
-                .len() as u64
-                * std::mem::size_of::<InstanceRaw>() as u64;
-
-            let empty_slice = bytemuck::zeroed_slice_box(CHUNK_BUFFER_SIZE as usize);
-
-            // Remove old chunk
-            queue.write_buffer(&buffers[buffer_to_write], offset, &empty_slice);
-            // Write new chunk if it doesn't override other things
-            if new_size <= CHUNK_BUFFER_SIZE {
-                queue.write_buffer(
-                    &buffers[buffer_to_write],
-                    offset,
-                    bytemuck::cast_slice(&instances),
-                );
-                chunk_offsets.insert(new_chunk, offset);
-                chunk_offsets.remove(&old_chunk);
-            } else {
-                println!("New chunk too large!");
-            }
+            let chunk = Chunk::new(device, new_chunk, seed);
             chunks.remove(&old_chunk);
             chunks.insert(new_chunk, chunk);
         }
-        drop(queue);
-        *active_buffer = buffer_to_write as u8;
-
-        let new_instances: Vec<Instance> = chunks
-            .values()
-            .flat_map(|chunk| chunk.blocks.iter().map(|block| block.as_instances()))
-            .flatten()
-            .collect();
-        let mut instances = instances.lock().unwrap();
-        *instances = new_instances;
     }
 
     pub fn update(&mut self, dt: Duration) {
@@ -621,7 +448,6 @@ impl<'a> State<'a> {
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
-        let instances = self.instances.lock().unwrap();
 
         let view = output
             .texture
@@ -664,14 +490,13 @@ impl<'a> State<'a> {
 
         render_pass.set_bind_group(0, &self.diffuse_texture.bind_group, &[]);
         render_pass.set_bind_group(1, &self.player_controller.camera.bind_group, &[]);
-        render_pass.set_bind_group(2, &self.current_chunk_bind_group, &[]);
 
-        let active_buffer = *self.active_instance_buffer.lock().unwrap();
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.instance_buffers[active_buffer as usize].slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..instances.len() as _);
+        for (_position, chunk) in self.chunks.lock().unwrap().iter() {
+            chunk.render(&mut render_pass);
+        }
         drop(render_pass);
 
         self.queue.submit(std::iter::once(encoder.finish()));

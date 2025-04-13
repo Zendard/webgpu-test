@@ -25,7 +25,7 @@ impl Instance {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 // fffxxxxxxyyyyyyzzzzzz
 // f = face         | x = x position in chunk
 // 000 -> left      | y = y position in chunk
