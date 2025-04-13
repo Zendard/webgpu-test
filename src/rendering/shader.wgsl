@@ -15,8 +15,8 @@ struct VertexInput {
 
 struct VertexOutput {
   @builtin(position) clip_position: vec4<f32>,
-  //@location(0) tex_coords: vec2<f32>
-  @location(0) color: u32,
+  @location(0) tex_coords: vec2<f32>
+  //@location(0) color: u32,
 };
 
 struct InstanceInput {
@@ -121,8 +121,8 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 
     var out: VertexOutput;
     out.clip_position = camera.view_proj * world_position;
-  //out.tex_coords = model.tex_coords;
-    out.color = face;
+  out.tex_coords = model.tex_coords;
+  //out.color = face;
     return out;
 }
 
@@ -133,23 +133,23 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let face = in.color;
-    if face == 0 {
-        return vec4<f32>(0, 0, 0, 1);
-    } else if face == 1 {
-        return vec4<f32>(0.5, 0, 0, 1);
-    } else if face == 2 {
-        return vec4<f32>(0, 0.5, 0, 1);
-    } else if face == 3 {
-        return vec4<f32>(0, 0, 0.5, 1);
-    } else if face == 4 {
-        return vec4<f32>(0.5, 0.5, 0, 1);
-    } else if face == 5 {
-        return vec4<f32>(0, 0.5, 0.5, 1);
-    } else {
-        return vec4<f32>(0.5, 0.5, 0.5, 1);
-    } 
-   //return textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    //let face = in.color;
+    //if face == 0 {
+    //    return vec4<f32>(0, 0, 0, 1);
+    //} else if face == 1 {
+    //    return vec4<f32>(0.5, 0, 0, 1);
+    //} else if face == 2 {
+    //    return vec4<f32>(0, 0.5, 0, 1);
+    //} else if face == 3 {
+    //    return vec4<f32>(0, 0, 0.5, 1);
+    //} else if face == 4 {
+    //    return vec4<f32>(0.5, 0.5, 0, 1);
+    //} else if face == 5 {
+    //    return vec4<f32>(0, 0.5, 0.5, 1);
+    //} else {
+    //    return vec4<f32>(0.5, 0.5, 0.5, 1);
+    //} 
+   return textureSample(t_diffuse, s_diffuse, in.tex_coords);
 }
 
 // 0 -> left   -> black
