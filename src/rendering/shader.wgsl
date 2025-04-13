@@ -15,7 +15,8 @@ struct VertexInput {
 
 struct VertexOutput {
   @builtin(position) clip_position: vec4<f32>,
-  @location(0) tex_coords: vec2<f32>
+  @location(0) tex_coords: vec2<f32>,
+  @location(1) face:u32,
   //@location(0) color: u32,
 };
 
@@ -61,6 +62,12 @@ const BACK_FACE_TRANSLATION = mat4x4<f32>(
     0, 0, 1, 0,
     0, 0, 0, 1,
 );
+
+const FACE_TO_SUNLIGHT = array<f32,6>(
+  3.5, 1.5, 4.5, 0.5, 2.5, 3.5  
+);
+
+const SUNGLIGHT_STRENGTH = 0.3;
 
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
@@ -122,6 +129,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     var out: VertexOutput;
     out.clip_position = camera.view_proj * world_position;
   out.tex_coords = model.tex_coords;
+  out.face = face;
   //out.color = face;
     return out;
 }
@@ -149,7 +157,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     //} else {
     //    return vec4<f32>(0.5, 0.5, 0.5, 1);
     //} 
-   return textureSample(t_diffuse, s_diffuse, in.tex_coords);
+  
+  return textureSample(t_diffuse, s_diffuse, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
 }
 
 // 0 -> left   -> black
