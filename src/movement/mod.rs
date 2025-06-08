@@ -204,7 +204,14 @@ impl CameraController {
         // Move up/down. Since we don't use roll, we can just
         // modify the y coordinate directly.
         if self.velocity.1.abs() > 0.005 {
-            camera.position.y += self.movement.1
+            let block_x = camera.position.x.floor() as u8;
+            let block_y = camera.position.y.floor() as u8 - 3;
+            let block_z = camera.position.z.floor() as u8;
+            let block_below = Block::new(block_x, block_y, block_z);
+            self.on_ground = chunk.blocks.contains(&block_below);
+            if (self.movement.1 >= 0.) || (self.movement.1 < 0. && !self.on_ground) {
+                camera.position.y += self.movement.1
+            }
         };
 
         // Rotate
@@ -226,10 +233,5 @@ impl CameraController {
         }
 
         // Check if we are on the ground
-        let block_x = camera.position.x.floor() as u8;
-        let block_y = camera.position.y.floor() as u8 - 3;
-        let block_z = camera.position.z.floor() as u8;
-        let block_below = Block::new(block_x, block_y, block_z);
-        self.on_ground = chunk.blocks.contains(&block_below);
     }
 }
