@@ -1,27 +1,27 @@
 struct Camera {
-  view_pos: vec4<f32>,
-  view_proj: mat4x4<f32>
+    view_pos: vec4<f32>,
+    view_proj: mat4x4<f32>
 };
-@group(1) @binding(0)
+@group(0) @binding(0)
 var<uniform> camera: Camera;
 
-@group(2) @binding(0)
+@group(1) @binding(0)
 var<uniform> chunk: vec2<i32>;
 
 struct VertexInput {
-  @location(0) position: vec3<f32>,
-  @location(1) tex_coords: vec2<f32>,
+    @location(0) position: vec3<f32>,
+    @location(1) tex_coords: vec2<f32>,
 };
 
 struct VertexOutput {
-  @builtin(position) clip_position: vec4<f32>,
-  @location(0) tex_coords: vec2<f32>,
-  @location(1) face:u32,
-  //@location(0) color: u32,
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) tex_coords: vec2<f32>,
+    @location(1) face: u32,
+    @location(2) texture: u32,
 };
 
 struct InstanceInput {
-  @location(5) raw_description: u32,
+    @location(5) raw_description: u32,
 };
 
 const FACE_TO_SIN_COS_X = array<f32, 12>(
@@ -64,7 +64,7 @@ const BACK_FACE_TRANSLATION = mat4x4<f32>(
 );
 
 const FACE_TO_SUNLIGHT = array<f32,6>(
-  3.5, 1.5, 4.5, 0.5, 2.5, 3.5  
+    3.5, 1.5, 4.5, 0.5, 2.5, 3.5
 );
 
 const SUNGLIGHT_STRENGTH = 0.3;
@@ -72,6 +72,7 @@ const SUNGLIGHT_STRENGTH = 0.3;
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let data = instance.raw_description;
+    let texture = (data >> 23) & 7;
     let face = (data >> 20) & 7;
     let position_x = (data >> 14) & 63;
     let position_y = (data >> 6) & 255;
@@ -128,16 +129,21 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 
     var out: VertexOutput;
     out.clip_position = camera.view_proj * world_position;
-  out.tex_coords = model.tex_coords;
-  out.face = face;
-  //out.color = face;
+    out.texture = texture;
+    out.tex_coords = model.tex_coords;
+    out.face = face;
     return out;
 }
 
-@group(0) @binding(0)
-var t_diffuse: texture_2d<f32>;
-@group(0) @binding(1)
-var s_diffuse: sampler;
+
+@group(2) @binding(0)
+var texture_sampler: sampler;
+@group(2) @binding(1)
+var stone_diffuse: texture_2d<f32>;
+@group(2) @binding(2)
+var dirt_diffuse: texture_2d<f32>;
+@group(2) @binding(3)
+var moss_diffuse: texture_2d<f32>;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -157,8 +163,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     //} else {
     //    return vec4<f32>(0.5, 0.5, 0.5, 1);
     //} 
-  
-  return textureSample(t_diffuse, s_diffuse, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
+    var out: vec4<f32>;
+    if in.texture == 0 {
+        let texture_diffuse = stone_diffuse;
+        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
+    } else if in.texture == 1 {
+        let texture_diffuse = dirt_diffuse;
+        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
+    } else if in.texture == 2 {
+        let texture_diffuse = moss_diffuse;
+        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
+    }
+
+    return out;
 }
 
 // 0 -> left   -> black

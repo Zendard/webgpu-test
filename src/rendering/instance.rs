@@ -1,3 +1,5 @@
+use crate::rendering::block::BlockTexture;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Face {
     Left = 0b000,
@@ -12,6 +14,7 @@ pub enum Face {
 pub struct Instance {
     pub position: cgmath::Vector3<u8>,
     pub face: Face,
+    pub texture: BlockTexture,
 }
 
 impl Instance {
@@ -19,18 +22,19 @@ impl Instance {
         let raw_description: u32 = ((self.position.x as u32) << 14)
             + ((self.position.y as u32) << 6)
             + (self.position.z as u32)
-            + ((self.face as u32) << 20);
+            + ((self.face as u32) << 20)
+            + ((self.texture as u32) << 23);
         InstanceRaw(raw_description)
     }
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-// fffxxxxxxyyyyyyyyzzzzzz
-// f = face         | x = x position in chunk
-// 000 -> left      | y = y position in chunk
-// 001 -> right     | z = z position in chunk
-// 010 -> top
+// tttfffxxxxxxyyyyyyyyzzzzzz
+// f = face         | t = texture
+// 000 -> left      | 000 -> stone
+// 001 -> right     | 001 -> dirt
+// 010 -> top       | 010 -> moss/grass
 // 011 -> bottom
 // 100 -> front
 // 101 -> back

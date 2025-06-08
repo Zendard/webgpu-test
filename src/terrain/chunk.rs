@@ -94,12 +94,12 @@ impl Chunk {
     }
 
     pub fn render(&self, render_pass: &mut wgpu::RenderPass) {
-        render_pass.set_bind_group(2, &self.bind_group, &[]);
+        render_pass.set_bind_group(1, &self.bind_group, &[]);
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.draw_indexed(
             0..crate::rendering::block::FACE_INDICES.len() as u32,
             0,
-            0..self.num_instances as u32,
+            0..self.num_instances,
         );
     }
 }

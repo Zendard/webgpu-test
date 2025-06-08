@@ -1,4 +1,4 @@
-use crate::rendering::block::Block;
+use crate::rendering::block::{Block, BlockTexture};
 use noise::{NoiseFn, Perlin};
 use std::{
     collections::HashSet,
@@ -56,6 +56,14 @@ pub fn generate_terrain(start: (i32, i32, i32), end: (i32, i32, i32), seed: u32)
                 if !block_after {
                     block.visible_faces ^= 0b000001
                 }
+
+                block.texture = if !block_above {
+                    BlockTexture::Moss
+                } else if !check_block((x, y + 2, z), perlin) {
+                    BlockTexture::Dirt
+                } else {
+                    BlockTexture::Stone
+                };
 
                 blocks.lock().unwrap().insert(block);
             }

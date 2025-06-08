@@ -119,8 +119,8 @@ pub struct State<'a> {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 
-    diffuse_texture: texture::Texture,
-    depth_texture: texture::RawTexture,
+    textures_bind_group: wgpu::BindGroup,
+    depth_texture: texture::RawDepthTexture,
 }
 
 impl<'a> State<'a> {
@@ -130,16 +130,39 @@ impl<'a> State<'a> {
         let window_clone = window.clone();
         let (device, config, queue, surface) = hardware::init(window_clone).await;
 
-        let diffuse_bytes = include_bytes!("../textures/stone.png");
-        let diffuse_texture = texture::Texture::from_bytes(
+        let stone_diffuse_bytes = include_bytes!("../textures/stone.png");
+        let stone_diffuse_texture = texture::Texture::from_bytes(
             &device,
             &queue,
-            diffuse_bytes,
-            "textures/cobblestone.png",
+            stone_diffuse_bytes,
+            "textures/stone.png",
         )
         .unwrap();
 
-        let depth_texture = texture::RawTexture::create_depth_texture(&device, &config);
+        let dirt_diffuse_bytes = include_bytes!("../textures/dirt.png");
+        let dirt_diffuse_texture =
+            texture::Texture::from_bytes(&device, &queue, dirt_diffuse_bytes, "textures/dirt.png")
+                .unwrap();
+
+        let moss_diffuse_bytes = include_bytes!("../textures/moss_block.png");
+        let moss_diffuse_texture = texture::Texture::from_bytes(
+            &device,
+            &queue,
+            moss_diffuse_bytes,
+            "textures/moss_block.png",
+        )
+        .unwrap();
+
+        let (textures_bind_group, textures_bind_group_layout) = texture::create_bind_groups(
+            &device,
+            &[
+                stone_diffuse_texture.raw_texture,
+                dirt_diffuse_texture.raw_texture,
+                moss_diffuse_texture.raw_texture,
+            ],
+        );
+
+        let depth_texture = texture::RawDepthTexture::create_depth_texture(&device, &config);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -189,9 +212,9 @@ impl<'a> State<'a> {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &diffuse_texture.bind_group_layout,
                     &player_controller.camera.bind_group_layout,
                     &current_chunk_bind_group_layout,
+                    &textures_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -226,7 +249,7 @@ impl<'a> State<'a> {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: texture::RawTexture::DEPTH_FORMAT,
+                format: texture::RawDepthTexture::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
@@ -271,7 +294,7 @@ impl<'a> State<'a> {
             render_pipeline,
             vertex_buffer,
             index_buffer,
-            diffuse_texture,
+            textures_bind_group,
             depth_texture,
             player_controller,
             chunks,
@@ -292,7 +315,7 @@ impl<'a> State<'a> {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
             self.depth_texture =
-                texture::RawTexture::create_depth_texture(&self.device, &self.config);
+                texture::RawDepthTexture::create_depth_texture(&self.device, &self.config);
             self.player_controller
                 .projection
                 .resize(new_size.width, new_size.height);
@@ -489,8 +512,8 @@ impl<'a> State<'a> {
 
         render_pass.set_pipeline(&self.render_pipeline);
 
-        render_pass.set_bind_group(0, &self.diffuse_texture.bind_group, &[]);
-        render_pass.set_bind_group(1, &self.player_controller.camera.bind_group, &[]);
+        render_pass.set_bind_group(0, &self.player_controller.camera.bind_group, &[]);
+        render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
 
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
