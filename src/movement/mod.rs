@@ -1,4 +1,3 @@
-use crate::rendering::block::Block;
 use crate::rendering::camera::{Camera, CameraUniform, Projection};
 use crate::terrain::chunk::Chunk;
 use cgmath::{Deg, InnerSpace, Rad, Vector3};
@@ -12,6 +11,8 @@ const GRAVITY: f32 = 0.08;
 const JUMP_ACCELERATION: f32 = 0.42;
 const JUMP_COOLDOWN: Duration = Duration::from_millis(500);
 const SECONDS_IN_TICK: f32 = 0.05;
+
+mod collision;
 
 #[derive(Debug)]
 pub struct PlayerController {
@@ -196,23 +197,28 @@ impl CameraController {
 
         // Move forward/backward and left/right
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
-        camera.position += forward * (self.movement.2);
-        camera.position += right * (self.movement.0);
+        let forward = Vector3::new(yaw_cos, 0., yaw_sin).normalize();
+        let up = Vector3::new(0., 1., 0.).normalize();
+        let right = Vector3::new(-yaw_sin, 0., yaw_cos).normalize();
+        let world_movement =
+            forward * self.movement.2 + up * self.movement.1 + right * self.movement.0;
 
+        let collisions =
+            collision::check_player_block(camera.position, world_movement, &chunk.blocks);
+        dbg!(collisions);
+
+        if !collisions.0 {
+            camera.position.x += world_movement.x
+        }
         // Move up/down. Since we don't use roll, we can just
         // modify the y coordinate directly.
-        if self.velocity.1.abs() > 0.005 {
-            let block_x = camera.position.x.floor() as u8;
-            let block_y = camera.position.y.floor() as u8 - 3;
-            let block_z = camera.position.z.floor() as u8;
-            let block_below = Block::new(block_x, block_y, block_z);
-            self.on_ground = chunk.blocks.contains(&block_below);
-            if (self.movement.1 >= 0.) || (self.movement.1 < 0. && !self.on_ground) {
-                camera.position.y += self.movement.1
-            }
+        self.on_ground = collisions.1 && world_movement.y <= 0.;
+        if self.velocity.1.abs() > 0.005 && !self.on_ground {
+            camera.position.y += world_movement.y
         };
+        if !collisions.2 {
+            camera.position.z += world_movement.z
+        }
 
         // Rotate
         camera.yaw += Rad(self.rotate.0) * self.sensitivity * dt;

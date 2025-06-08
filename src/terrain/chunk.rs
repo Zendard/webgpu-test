@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use wgpu::util::DeviceExt;
 
 use crate::rendering::block::Block;
@@ -21,7 +23,7 @@ const BIND_GROUP_LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor =
 #[derive(Debug)]
 pub struct Chunk {
     pub position: (i32, i32),
-    pub blocks: Vec<Block>,
+    pub blocks: HashSet<Block>,
     instance_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     num_instances: u32,
@@ -40,7 +42,7 @@ impl Chunk {
             (position.1 + 1) * CHUNK_SIZE as i32,
         );
 
-        let blocks: Vec<Block> = super::generate_terrain(start, end, seed)
+        let blocks: HashSet<Block> = super::generate_terrain(start, end, seed)
             .iter()
             .copied()
             .collect();
