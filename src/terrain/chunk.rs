@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 
 use crate::rendering::block::Block;
 
-pub const CHUNK_SIZE: u32 = 32;
+pub const CHUNK_SIZE: u8 = 32;
 const BIND_GROUP_LAYOUT_DESCRIPTOR: wgpu::BindGroupLayoutDescriptor =
     wgpu::BindGroupLayoutDescriptor {
         label: Some("Chunk bind group layout"),

@@ -205,7 +205,6 @@ impl CameraController {
 
         let collisions =
             collision::check_player_block(camera.position, world_movement, &chunk.blocks);
-        dbg!(collisions);
 
         if !collisions.0 {
             camera.position.x += world_movement.x
