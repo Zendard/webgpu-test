@@ -8,9 +8,10 @@ const SAFE_FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2 - 0.0001;
 const PLAYER_ACCELERATION: f32 = 3.;
 const SLIPPERINESS: f32 = 0.546;
 const GRAVITY: f32 = 0.08;
-const JUMP_ACCELERATION: f32 = 0.42;
+const JUMP_VELOCITY: f32 = 0.42;
 const JUMP_COOLDOWN: Duration = Duration::from_millis(500);
-const SECONDS_IN_TICK: f32 = 0.05;
+// const SECONDS_IN_TICK: f32 = 0.05;
+const MOVEMENT_SCALING: f32 = 10.;
 
 mod collision;
 
@@ -31,7 +32,7 @@ impl PlayerController {
         let camera_uniform = CameraUniform::new();
         let camera = Camera::new(position, Rad(0.), Rad(-90.), device, camera_uniform);
         let projection = Projection::new(config.width, config.height, Deg(90.), 0.1, 100.);
-        let controller = CameraController::new(50.);
+        let controller = CameraController::new(0.01);
 
         Self {
             camera,
@@ -116,9 +117,13 @@ impl CameraController {
     }
 
     pub fn tick_update_camera(&mut self, dt: f32) {
-        let mut velocity_x = self.velocity.0 * SECONDS_IN_TICK;
-        let mut velocity_y = self.velocity.1 * SECONDS_IN_TICK;
-        let mut velocity_z = self.velocity.2 * SECONDS_IN_TICK;
+        let dt = dt.div_euclid(20.) as u32;
+        let dt = if dt < 1 { 1 } else { dt };
+
+        let now = std::time::Instant::now();
+        let mut velocity_x = self.velocity.0;
+        let mut velocity_y = self.velocity.1;
+        let mut velocity_z = self.velocity.2;
 
         if !self.gravity_enabled {
             self.on_ground = true
@@ -162,12 +167,15 @@ impl CameraController {
 
         // Set vertical velocity
         velocity_y = if do_jump {
-            self.input.last_jump_time = std::time::Instant::now();
-            JUMP_ACCELERATION
+            self.input.last_jump_time = now;
+            JUMP_VELOCITY
         } else if self.on_ground {
             0.
+        } else if now - self.input.last_jump_time >= Duration::from_millis(200) {
+            (velocity_y - GRAVITY * dt as f32) * 0.98_f32.powi(dt as i32)
         } else {
-            (velocity_y - GRAVITY) * 0.98
+            println!("No gravity applied");
+            velocity_y
         };
 
         if !self.gravity_enabled && self.input.y > 0. {
@@ -182,18 +190,19 @@ impl CameraController {
             velocity_z += 0.2 * self.input.z;
         }
 
-        self.velocity.0 = velocity_x * dt / SECONDS_IN_TICK;
-        self.velocity.1 = velocity_y * dt / SECONDS_IN_TICK;
-        self.velocity.2 = velocity_z * dt / SECONDS_IN_TICK;
+        self.velocity.0 = velocity_x;
+        self.velocity.1 = velocity_y;
+        self.velocity.2 = velocity_z;
     }
 
     pub fn update_camera(&mut self, camera: &mut Camera, chunk: &Chunk, dt: Duration) {
         let dt = dt.as_secs_f32();
+        let old_position = camera.position;
 
         // Add velocity to position
-        self.movement.0 += self.velocity.0 * dt * 5.;
-        self.movement.1 += self.velocity.1 * dt * 5.;
-        self.movement.2 += self.velocity.2 * dt * 5.;
+        self.movement.0 += self.velocity.0 * MOVEMENT_SCALING;
+        self.movement.1 += self.velocity.1 * MOVEMENT_SCALING;
+        self.movement.2 += self.velocity.2 * MOVEMENT_SCALING;
 
         // Move forward/backward and left/right
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
@@ -207,21 +216,29 @@ impl CameraController {
             collision::check_player_block(camera.position, world_movement, &chunk.blocks);
 
         if !collisions.0 {
-            camera.position.x += world_movement.x
+            camera.position.x += world_movement.x * dt
         }
         // Move up/down. Since we don't use roll, we can just
         // modify the y coordinate directly.
         self.on_ground = collisions.1 && world_movement.y <= 0.;
         if self.velocity.1.abs() > 0.005 && !self.on_ground {
-            camera.position.y += world_movement.y
+            camera.position.y += world_movement.y * dt
         };
         if !collisions.2 {
-            camera.position.z += world_movement.z
+            camera.position.z += world_movement.z * dt
         }
 
+        // println!(
+        //     "y: {:?}, vy: {:?}, blocks/s: {:?}, my: {:?}",
+        //     camera.position.y,
+        //     self.velocity.1,
+        //     ((camera.position.y - old_position.y) / dt),
+        //     self.movement.1
+        // );
+
         // Rotate
-        camera.yaw += Rad(self.rotate.0) * self.sensitivity * dt;
-        camera.pitch += Rad(-self.rotate.1) * self.sensitivity * dt;
+        camera.yaw += Rad(self.rotate.0) * self.sensitivity;
+        camera.pitch += Rad(-self.rotate.1) * self.sensitivity;
         //dbg!(camera.yaw);
 
         // If process_mouse isn't called every frame, these values
@@ -236,7 +253,5 @@ impl CameraController {
         } else if camera.pitch > Rad(SAFE_FRAC_PI_2) {
             camera.pitch = Rad(SAFE_FRAC_PI_2);
         }
-
-        // Check if we are on the ground
     }
 }

@@ -5,8 +5,15 @@ struct Camera {
 @group(0) @binding(0)
 var<uniform> camera: Camera;
 
+struct AlignedArray {
+    @align(16)
+  value: array<u32>,
+}
+
 @group(1) @binding(0)
 var<uniform> chunk: vec2<i32>;
+@group(1) @binding(1)
+var<storage, read> blocks: array<vec4<u32>>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -18,6 +25,7 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
     @location(1) face: u32,
     @location(2) texture: u32,
+    @location(3) light_amount: f32,
 };
 
 struct InstanceInput {
@@ -69,6 +77,9 @@ const FACE_TO_SUNLIGHT = array<f32,6>(
 
 const SUNGLIGHT_STRENGTH = 0.3;
 
+const LIGHT_RAY_DIR = vec3<f32>(.5, 1, .5);
+const MAX_RAY_LENGTH = 32;
+
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let data = instance.raw_description;
@@ -114,14 +125,14 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 
     var tranform_matrix = chunk_translation_matrix * translation_matrix * rotation_matrix_x * rotation_matrix_y;
 
-  // Top face needs to be moved up
-    if face == 2 {
+
+    if face == 2 { // Top face needs to be moved up 
         tranform_matrix *= TOP_FACE_TRANSLATION;
-  // Front face need to be moved down
-    } else if face == 4 && position_y > 0 {
+  
+    } else if face == 4 && position_y > 0 { // Front face need to be moved down 
         tranform_matrix *= FRONT_FACE_TRANSLATION;
-  // Back face needs to be moved back
-    } else if face == 5 {
+  
+    } else if face == 5 { // Back face needs to be moved back 
         tranform_matrix *= BACK_FACE_TRANSLATION;
     }
 
@@ -132,6 +143,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.texture = texture;
     out.tex_coords = model.tex_coords;
     out.face = face;
+    out.light_amount = calculate_light(world_position.xyz);
     return out;
 }
 
@@ -166,16 +178,34 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var out: vec4<f32>;
     if in.texture == 0 {
         let texture_diffuse = stone_diffuse;
-        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
+        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords);
     } else if in.texture == 1 {
         let texture_diffuse = dirt_diffuse;
-        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
+        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords);
     } else if in.texture == 2 {
         let texture_diffuse = moss_diffuse;
-        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords) * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH;
+        out = textureSample(texture_diffuse, texture_sampler, in.tex_coords);
     }
 
-    return out;
+    return out * FACE_TO_SUNLIGHT[in.face] * SUNGLIGHT_STRENGTH * in.light_amount;
+}
+
+fn calculate_light(pixel_pos: vec3<f32>) -> f32 {
+    let  block_amount = i32(arrayLength(&blocks));
+    for (var i = 0; i < block_amount; i++) {
+        let block_position = vec3(f32(blocks[i].x), f32(blocks[i].y), f32(blocks[i].z));
+        let t_low = (block_position - pixel_pos) / LIGHT_RAY_DIR;
+        let t_high = (block_position + vec3(1, 1, 1) - pixel_pos) / LIGHT_RAY_DIR;
+        let t_close_vec = min(t_low, t_high);
+        let t_far_vec = max(t_low, t_high);
+        let t_close = max(t_close_vec.x, max(t_close_vec.y, t_close_vec.z));
+        let t_far = min(t_far_vec.x, min(t_far_vec.y, t_far_vec.z));
+
+        if t_close <= t_far && sign(t_close) > 0 {
+            return 0.3;
+        }
+    }
+    return 1.;
 }
 
 // 0 -> left   -> black

@@ -2,6 +2,7 @@ use crate::terrain::chunk::Chunk;
 use instance::{Instance, InstanceRaw};
 use pollster::FutureExt;
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vertex::Vertex;
@@ -19,7 +20,7 @@ pub mod instance;
 mod texture;
 pub mod vertex;
 
-const RENDER_DISTANCE: u32 = 3;
+const RENDER_DISTANCE: u32 = 1;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -80,7 +81,10 @@ impl ApplicationHandler for StateApplication<'_> {
                     let state = self.state.as_mut().unwrap();
 
                     let dt = Instant::now() - state.last_render_time;
-                    state.update(dt);
+                    if dt.as_nanos() >= 10 {
+                        state.update(dt);
+                        state.last_render_time = Instant::now();
+                    }
                     let amount_of_ticks_passed =
                         (Instant::now() - state.last_tick_time).as_millis() as f32 / 50.;
                     if amount_of_ticks_passed >= 1. {
@@ -89,8 +93,6 @@ impl ApplicationHandler for StateApplication<'_> {
                         state.last_tick_time = Instant::now();
                     }
                     state.render().unwrap();
-
-                    state.last_render_time = Instant::now();
 
                     self.state.as_ref().unwrap().window().request_redraw();
                 }
@@ -196,16 +198,28 @@ impl<'a> State<'a> {
         let current_chunk_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Current chunk bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        count: NonZeroU32::new(0 as u32),
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                    },
+                ],
             });
 
         let render_pipeline_layout =
