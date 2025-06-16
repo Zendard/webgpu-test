@@ -26,7 +26,8 @@ pub async fn init(window: Arc<Window>) -> (Device, SurfaceConfiguration, Queue, 
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::BUFFER_BINDING_ARRAY,
+                required_features: wgpu::Features::BUFFER_BINDING_ARRAY
+                    | wgpu::Features::VERTEX_WRITABLE_STORAGE,
                 required_limits: wgpu::Limits::default(),
                 label: None,
                 memory_hints: Default::default(),

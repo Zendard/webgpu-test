@@ -1,26 +1,14 @@
-use crate::terrain::chunk::Chunk;
-use instance::{Instance, InstanceRaw};
 use pollster::FutureExt;
-use std::collections::HashMap;
-use std::num::NonZeroU32;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use vertex::Vertex;
-use wgpu::util::DeviceExt;
+use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::{DeviceEvent, KeyEvent, MouseButton, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-pub mod block;
-pub mod camera;
 mod hardware;
-pub mod instance;
 mod texture;
-pub mod vertex;
 
-const RENDER_DISTANCE: u32 = 1;
+const RENDER_DISTANCE: u32 = 2;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -41,22 +29,6 @@ impl ApplicationHandler for StateApplication<'_> {
         self.state = Some(State::new(window, self.seed).block_on());
     }
 
-    fn device_event(
-        &mut self,
-        _: &ActiveEventLoop,
-        _: winit::event::DeviceId,
-        event: winit::event::DeviceEvent,
-    ) {
-        if let DeviceEvent::MouseMotion { delta } = event {
-            self.state
-                .as_mut()
-                .unwrap()
-                .player_controller
-                .controller
-                .process_mouse(delta.0, delta.1);
-        }
-    }
-
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -73,27 +45,9 @@ impl ApplicationHandler for StateApplication<'_> {
                 WindowEvent::Resized(physical_size) => {
                     self.state.as_mut().unwrap().resize(physical_size);
                 }
-                WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. } => {
-                    let state = self.state.as_mut().unwrap();
-                    state.input(&event);
-                }
                 WindowEvent::RedrawRequested => {
                     let state = self.state.as_mut().unwrap();
-
-                    let dt = Instant::now() - state.last_render_time;
-                    if dt.as_nanos() >= 10 {
-                        state.update(dt);
-                        state.last_render_time = Instant::now();
-                    }
-                    let amount_of_ticks_passed =
-                        (Instant::now() - state.last_tick_time).as_millis() as f32 / 50.;
-                    if amount_of_ticks_passed >= 1. {
-                        //dbg!(amount_of_ticks_passed);
-                        state.tick_update(amount_of_ticks_passed);
-                        state.last_tick_time = Instant::now();
-                    }
                     state.render().unwrap();
-
                     self.state.as_ref().unwrap().window().request_redraw();
                 }
                 _ => {}
@@ -110,19 +64,12 @@ pub struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
+    terrain_gen_pipeline: wgpu::ComputePipeline,
 
-    player_controller: crate::movement::PlayerController,
-    chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>>,
-    previous_chunk: (i32, i32),
+    block_buffer: wgpu::Buffer,
+    block_bind_group: wgpu::BindGroup,
     seed: u32,
-    last_render_time: Instant,
-    last_tick_time: Instant,
-
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-
     textures_bind_group: wgpu::BindGroup,
-    depth_texture: texture::RawDepthTexture,
 }
 
 impl<'a> State<'a> {
@@ -155,6 +102,43 @@ impl<'a> State<'a> {
         )
         .unwrap();
 
+        let block_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Block Buffer"),
+            mapped_at_creation: false,
+            size: 1572864,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let block_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Block bind group layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let block_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Block bind group"),
+            layout: &block_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    size: None,
+                    offset: 0,
+                    buffer: &block_buffer,
+                }),
+            }],
+        });
+
         let (textures_bind_group, textures_bind_group_layout) = texture::create_bind_groups(
             &device,
             &[
@@ -164,72 +148,20 @@ impl<'a> State<'a> {
             ],
         );
 
-        let depth_texture = texture::RawDepthTexture::create_depth_texture(&device, &config);
-
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice::<Vertex, u8>(self::block::FACE_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
+        let terrain_gen_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Terrain Generation Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../terrain/generation.wgsl").into()),
         });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice::<u16, u8>(self::block::FACE_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let mut player_controller =
-            crate::movement::PlayerController::new([16., 150., 16.], &config, &device);
-        player_controller
-            .camera_uniform
-            .update_view_proj(&player_controller.camera, &player_controller.projection);
-
-        let current_chunk = (
-            player_controller.camera.position.x as i32 / 32,
-            player_controller.camera.position.z as i32 / 32,
-        );
-        dbg!(current_chunk);
-
-        let current_chunk_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Current chunk bind group layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        count: NonZeroU32::new(0 as u32),
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                    },
-                ],
-            });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &player_controller.camera.bind_group_layout,
-                    &current_chunk_bind_group_layout,
-                    &textures_bind_group_layout,
-                ],
+                bind_group_layouts: &[&block_bind_group_layout, &textures_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -239,7 +171,7 @@ impl<'a> State<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc(), InstanceRaw::desc()],
+                buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -262,13 +194,7 @@ impl<'a> State<'a> {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: texture::RawDepthTexture::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            depth_stencil: None,
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -278,25 +204,39 @@ impl<'a> State<'a> {
             cache: None,
         });
 
-        let chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>> = Arc::new(Mutex::new(HashMap::new()));
-        let mut handles = Vec::new();
-        println!("Generating terrain...");
-        for x in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
-            for y in -(RENDER_DISTANCE as i32) + 1..RENDER_DISTANCE as i32 {
-                let chunks = chunks.clone();
-                let device = device.clone();
-                let handle = std::thread::spawn(move || {
-                    let chunk = Chunk::new(&device, (x, y), seed);
-                    let position = chunk.position;
-                    chunks.lock().unwrap().insert(position, chunk);
-                });
-                handles.push(handle);
-            }
-        }
+        let terrain_gen_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Terrain gen Pipeline Layout"),
+                bind_group_layouts: &[&block_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
-        for handle in handles {
-            handle.join().unwrap();
-        }
+        let terrain_gen_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Terrain gen pipeline"),
+                layout: Some(&terrain_gen_pipeline_layout),
+                module: &terrain_gen_shader,
+                entry_point: Some("gen_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Terrain gen Encoder"),
+        });
+
+        let mut terrain_gen_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Terrain gen Pass"),
+            timestamp_writes: None,
+        });
+
+        terrain_gen_pass.set_pipeline(&terrain_gen_pipeline);
+        terrain_gen_pass.set_bind_group(0, &block_bind_group, &[]);
+        terrain_gen_pass.dispatch_workgroups(3, 1, 3);
+
+        drop(terrain_gen_pass);
+        queue.submit(std::iter::once(encoder.finish()));
+
         println!("Done");
 
         Self {
@@ -306,16 +246,11 @@ impl<'a> State<'a> {
             config,
             window,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            textures_bind_group,
-            depth_texture,
-            player_controller,
-            chunks,
-            previous_chunk: (0, 0),
+            terrain_gen_pipeline,
             seed,
-            last_render_time: Instant::now(),
-            last_tick_time: Instant::now(),
+            textures_bind_group,
+            block_buffer,
+            block_bind_group,
         }
     }
 
@@ -328,160 +263,7 @@ impl<'a> State<'a> {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-            self.depth_texture =
-                texture::RawDepthTexture::create_depth_texture(&self.device, &self.config);
-            self.player_controller
-                .projection
-                .resize(new_size.width, new_size.height);
         }
-    }
-
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        physical_key: PhysicalKey::Code(key),
-                        state,
-                        ..
-                    },
-                ..
-            } => {
-                if *key == KeyCode::Escape {
-                    self.window
-                        .set_cursor_grab(winit::window::CursorGrabMode::None)
-                        .unwrap();
-                    self.window.set_cursor_visible(true);
-                }
-                self.player_controller
-                    .controller
-                    .process_keyboard(*key, *state)
-            }
-            WindowEvent::MouseInput {
-                button: MouseButton::Left,
-                state,
-                ..
-            } => {
-                if state.is_pressed() {
-                    let cursor_grabbed = self
-                        .window
-                        .set_cursor_grab(winit::window::CursorGrabMode::Locked);
-                    if cursor_grabbed.is_ok() {
-                        self.window.set_cursor_visible(false);
-                    } else {
-                        println!(
-                            "Couldn't grab the cursor: {}",
-                            cursor_grabbed.err().unwrap()
-                        );
-                    }
-                }
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn update_terrain(&mut self) {
-        let current_chunk = (
-            self.player_controller.camera.position.x as i32 / 32,
-            self.player_controller.camera.position.z as i32 / 32,
-        );
-
-        // Dont need to update when in the same chunk
-        if current_chunk == self.previous_chunk {
-            return;
-        }
-        self.player_controller.controller.velocity = (0., 0., 0.);
-        let previous_chunk = self.previous_chunk;
-        let seed = self.seed;
-        let chunks = self.chunks.clone();
-        let device = self.device.clone();
-
-        std::thread::spawn(move || {
-            State::generate_new_chunks(current_chunk, previous_chunk, seed, chunks, &device)
-        });
-        self.previous_chunk = current_chunk;
-    }
-
-    fn generate_new_chunks(
-        current_chunk: (i32, i32),
-        previous_chunk: (i32, i32),
-        seed: u32,
-        chunks: Arc<Mutex<HashMap<(i32, i32), Chunk>>>,
-        device: &wgpu::Device,
-    ) {
-        let mut chunks = chunks.lock().unwrap();
-        let mut chunk_changes: HashMap<(i32, i32), (i32, i32)> =
-            HashMap::with_capacity((RENDER_DISTANCE * 2 - 1) as usize);
-
-        let chunk_position_delta = (
-            current_chunk.0 - previous_chunk.0,
-            current_chunk.1 - previous_chunk.1,
-        );
-
-        if chunk_position_delta.0 != 0 {
-            for z in 0..RENDER_DISTANCE * 2 - 1 {
-                let new_chunk = (
-                    previous_chunk.0 + chunk_position_delta.0 * RENDER_DISTANCE as i32,
-                    previous_chunk.1 + z as i32 - RENDER_DISTANCE as i32 + 1,
-                );
-                let old_chunk = (
-                    current_chunk.0 - (RENDER_DISTANCE as i32) * chunk_position_delta.0,
-                    new_chunk.1,
-                );
-                chunk_changes.insert(new_chunk, old_chunk);
-            }
-        } else if chunk_position_delta.1 != 0 {
-            for x in 0..RENDER_DISTANCE * 2 - 1 {
-                let new_chunk = (
-                    previous_chunk.0 + x as i32 - RENDER_DISTANCE as i32 + 1,
-                    previous_chunk.1 + chunk_position_delta.1 * RENDER_DISTANCE as i32,
-                );
-                let old_chunk = (
-                    new_chunk.0,
-                    current_chunk.1 - (RENDER_DISTANCE as i32) * chunk_position_delta.1,
-                );
-                chunk_changes.insert(new_chunk, old_chunk);
-            }
-        }
-
-        dbg!(&chunk_changes);
-
-        println!("Generating new chunks...");
-        for (new_chunk, old_chunk) in chunk_changes {
-            dbg!(&chunk_position_delta, &new_chunk, &old_chunk);
-            let chunk = Chunk::new(device, new_chunk, seed);
-            chunks.remove(&old_chunk);
-            chunks.insert(new_chunk, chunk);
-        }
-    }
-
-    pub fn update(&mut self, dt: Duration) {
-        self.player_controller.controller.update_camera(
-            &mut self.player_controller.camera,
-            self.chunks
-                .lock()
-                .unwrap()
-                .get(&self.previous_chunk)
-                .unwrap(),
-            dt,
-        );
-
-        self.player_controller.camera_uniform.update_view_proj(
-            &self.player_controller.camera,
-            &self.player_controller.projection,
-        );
-
-        self.queue.write_buffer(
-            &self.player_controller.camera.buffer,
-            0,
-            bytemuck::cast_slice(&[self.player_controller.camera_uniform]),
-        );
-    }
-
-    pub fn tick_update(&mut self, ticks: f32) {
-        self.player_controller.controller.tick_update_camera(ticks);
-        self.update_terrain();
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -512,31 +294,17 @@ impl<'a> State<'a> {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.depth_texture.view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
+            depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
         });
 
         render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.block_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.textures_bind_group, &[]);
 
-        render_pass.set_bind_group(0, &self.player_controller.camera.bind_group, &[]);
-        render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
-
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-        for (_position, chunk) in self.chunks.lock().unwrap().iter() {
-            chunk.render(&mut render_pass);
-        }
+        render_pass.draw(0..131072, 0..1);
         drop(render_pass);
-
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 

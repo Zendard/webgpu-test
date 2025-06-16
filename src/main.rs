@@ -1,8 +1,6 @@
 use std::error::Error;
 
-mod movement;
 mod rendering;
-mod terrain;
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Running... ");
