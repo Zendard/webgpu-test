@@ -1,23 +1,30 @@
 use pollster::FutureExt;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{DeviceEvent, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-use winit::window::{Window, WindowId};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{CursorGrabMode, Window, WindowId};
 
+mod camera;
 mod hardware;
 mod texture;
 
-const RENDER_DISTANCE: u32 = 2;
+// const RENDER_DISTANCE: u32 = 2;
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
     pub seed: u32,
+    pub last_time: std::time::Instant,
 }
 
 impl StateApplication<'_> {
     pub fn new(seed: u32) -> Self {
-        StateApplication { state: None, seed }
+        StateApplication {
+            state: None,
+            seed,
+            last_time: std::time::Instant::now(),
+        }
     }
 }
 
@@ -29,29 +36,78 @@ impl ApplicationHandler for StateApplication<'_> {
         self.state = Some(State::new(window, self.seed).block_on());
     }
 
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        let state = if let Some(state) = &mut self.state {
+            state
+        } else {
+            return;
+        };
+        match event {
+            DeviceEvent::MouseMotion { delta: (dx, dy) } => {
+                if state.mouse_pressed {
+                    state.camera.controller.handle_mouse(dx, dy);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        window_id: WindowId,
+        _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let window = self.state.as_ref().unwrap().window();
+        let state = match &mut self.state {
+            Some(canvas) => canvas,
+            None => return,
+        };
 
-        if window.id() == window_id {
-            match event {
-                WindowEvent::CloseRequested => {
-                    event_loop.exit();
-                }
-                WindowEvent::Resized(physical_size) => {
-                    self.state.as_mut().unwrap().resize(physical_size);
-                }
-                WindowEvent::RedrawRequested => {
-                    let state = self.state.as_mut().unwrap();
-                    state.render().unwrap();
-                    self.state.as_ref().unwrap().window().request_redraw();
-                }
-                _ => {}
+        match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
             }
+            WindowEvent::Resized(physical_size) => {
+                state.resize(physical_size);
+            }
+            WindowEvent::MouseInput {
+                state: button_state,
+                button,
+                ..
+            } => state.handle_mouse_button(button, button_state.is_pressed()),
+            WindowEvent::MouseWheel { delta, .. } => state.handle_mouse_scroll(&delta),
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(code),
+                        state: key_state,
+                        ..
+                    },
+                ..
+            } => state.handle_key(event_loop, code, key_state.is_pressed()),
+            WindowEvent::RedrawRequested => {
+                let dt = self.last_time.elapsed();
+                self.last_time = std::time::Instant::now();
+                state.update(dt);
+                match state.render() {
+                    Ok(_) => {}
+                    // Reconfigure the surface if it's lost or outdated
+                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        let size = state.window.inner_size();
+                        state.resize(size);
+                    }
+                    Err(e) => {
+                        eprintln!("Unable to render {}", e);
+                    }
+                }
+                state.window.request_redraw();
+            }
+            _ => {}
         }
     }
 }
@@ -65,6 +121,9 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
     terrain_gen_pipeline: wgpu::ComputePipeline,
+
+    camera: camera::Camera,
+    mouse_pressed: bool,
 
     block_buffer: wgpu::Buffer,
     block_bind_group: wgpu::BindGroup,
@@ -101,6 +160,9 @@ impl<'a> State<'a> {
             "textures/moss_block.png",
         )
         .unwrap();
+
+        let (camera, camera_bind_group_layout) =
+            camera::Camera::new(cgmath::Deg(45.), 0.1, 100., 4., 2.0, &device);
 
         let block_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Block Buffer"),
@@ -161,7 +223,11 @@ impl<'a> State<'a> {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&block_bind_group_layout, &textures_bind_group_layout],
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &block_bind_group_layout,
+                    &textures_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -188,8 +254,8 @@ impl<'a> State<'a> {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                //cull_mode: None,
+                // cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -221,23 +287,8 @@ impl<'a> State<'a> {
                 cache: None,
             });
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Terrain gen Encoder"),
-        });
-
-        let mut terrain_gen_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("Terrain gen Pass"),
-            timestamp_writes: None,
-        });
-
-        terrain_gen_pass.set_pipeline(&terrain_gen_pipeline);
-        terrain_gen_pass.set_bind_group(0, &block_bind_group, &[]);
-        terrain_gen_pass.dispatch_workgroups(3, 1, 3);
-
-        drop(terrain_gen_pass);
-        queue.submit(std::iter::once(encoder.finish()));
-
-        println!("Done");
+        // crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, &block_bind_group);
+        queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
 
         Self {
             surface,
@@ -245,6 +296,8 @@ impl<'a> State<'a> {
             queue,
             config,
             window,
+            camera,
+            mouse_pressed: false,
             render_pipeline,
             terrain_gen_pipeline,
             seed,
@@ -254,16 +307,52 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn window(&self) -> &Window {
-        &self.window
+    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width <= 0 || new_size.height <= 0 {
+            return;
+        }
+
+        self.config.width = new_size.width;
+        self.config.height = new_size.height;
+        self.surface.configure(&self.device, &self.config);
+        self.camera
+            .resize(new_size.width, new_size.height, &self.queue);
     }
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        if new_size.width > 0 && new_size.height > 0 {
-            self.config.width = new_size.width;
-            self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
+    fn handle_key(&mut self, _event_loop: &ActiveEventLoop, key: KeyCode, pressed: bool) {
+        if !self.camera.controller.handle_key(key, pressed) {
+            match (key, pressed) {
+                (KeyCode::Escape, true) => {
+                    self.mouse_pressed = false;
+                    self.window
+                        .set_cursor_grab(CursorGrabMode::None)
+                        .expect("Failed to release cursor!");
+                    self.window.set_cursor_visible(true);
+                }
+                _ => {}
+            }
         }
+    }
+
+    fn handle_mouse_button(&mut self, button: MouseButton, _pressed: bool) {
+        match button {
+            MouseButton::Left => {
+                self.mouse_pressed = true;
+                self.window
+                    .set_cursor_grab(CursorGrabMode::Locked)
+                    .expect("Failed to grab cursor!");
+                self.window.set_cursor_visible(false);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_mouse_scroll(&mut self, delta: &MouseScrollDelta) {
+        self.camera.controller.handle_scroll(delta);
+    }
+
+    fn update(&mut self, dt: std::time::Duration) {
+        self.camera.update_camera(dt, &self.queue);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -300,10 +389,11 @@ impl<'a> State<'a> {
         });
 
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.block_bind_group, &[]);
-        render_pass.set_bind_group(1, &self.textures_bind_group, &[]);
+        render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+        render_pass.set_bind_group(1, &self.block_bind_group, &[]);
+        render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
 
-        render_pass.draw(0..131072, 0..1);
+        render_pass.draw(0..6, 0..100);
         drop(render_pass);
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
