@@ -162,7 +162,7 @@ impl<'a> State<'a> {
         .unwrap();
 
         let (camera, camera_bind_group_layout) =
-            camera::Camera::new(cgmath::Deg(45.), 0.1, 100., 4., 2.0, &device);
+            camera::Camera::new(cgmath::Deg(45.), 0.1, 100., 10., 2.0, &device);
 
         let block_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Block Buffer"),
@@ -287,8 +287,8 @@ impl<'a> State<'a> {
                 cache: None,
             });
 
-        // crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, &block_bind_group);
-        queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
+        crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, &block_bind_group);
+        // queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
 
         Self {
             surface,
@@ -393,7 +393,7 @@ impl<'a> State<'a> {
         render_pass.set_bind_group(1, &self.block_bind_group, &[]);
         render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
 
-        render_pass.draw(0..6, 0..100);
+        render_pass.draw(0..12, 0..1024);
         drop(render_pass);
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

@@ -16,7 +16,7 @@ pub fn generate(
 
     terrain_gen_pass.set_pipeline(terrain_gen_pipeline);
     terrain_gen_pass.set_bind_group(0, block_bind_group, &[]);
-    terrain_gen_pass.dispatch_workgroups(3, 1, 3);
+    terrain_gen_pass.dispatch_workgroups(1, 1, 32);
 
     drop(terrain_gen_pass);
     queue.submit(std::iter::once(encoder.finish()));
