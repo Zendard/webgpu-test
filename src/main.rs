@@ -5,6 +5,7 @@ mod terrain;
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Running... ");
+    env_logger::init();
     let event_loop = winit::event_loop::EventLoop::new().unwrap();
     let seed: u32 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

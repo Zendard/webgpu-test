@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
+use wgpu::{rwh::HasWindowHandle, Device, Queue, Surface, SurfaceConfiguration};
 use winit::window::Window;
 
 pub async fn init(window: Arc<Window>) -> (Device, SurfaceConfiguration, Queue, Surface<'static>) {
@@ -12,7 +12,8 @@ pub async fn init(window: Arc<Window>) -> (Device, SurfaceConfiguration, Queue, 
         ..Default::default()
     });
 
-    let surface = instance.create_surface(window.clone()).unwrap();
+    let surface_target: wgpu::SurfaceTarget = wgpu::SurfaceTarget::Window(Box::new(window.clone()));
+    let surface = instance.create_surface(surface_target).unwrap();
 
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -24,16 +25,14 @@ pub async fn init(window: Arc<Window>) -> (Device, SurfaceConfiguration, Queue, 
         .unwrap();
 
     let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::BUFFER_BINDING_ARRAY
-                    | wgpu::Features::VERTEX_WRITABLE_STORAGE,
-                required_limits: wgpu::Limits::default(),
-                label: None,
-                memory_hints: Default::default(),
-            },
-            None, // Trace path
-        )
+        .request_device(&wgpu::DeviceDescriptor {
+            required_features: wgpu::Features::BUFFER_BINDING_ARRAY
+                | wgpu::Features::VERTEX_WRITABLE_STORAGE,
+            required_limits: wgpu::Limits::default(),
+            label: None,
+            memory_hints: Default::default(),
+            trace: wgpu::Trace::Off,
+        })
         .await
         .unwrap();
 
