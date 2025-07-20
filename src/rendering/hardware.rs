@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use wgpu::{rwh::HasWindowHandle, Device, Queue, Surface, SurfaceConfiguration};
+use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 use winit::window::Window;
 
 pub async fn init(window: Arc<Window>) -> (Device, SurfaceConfiguration, Queue, Surface<'static>) {
