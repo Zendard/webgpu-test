@@ -4,7 +4,7 @@ struct Camera {
 }
 @group(0) @binding(0)
 var<uniform> camera: Camera;
-@group(1) @binding(0) var<storage, read_write> blocks: array<vec3<u32>, 16384>;
+@group(1) @binding(0) var<storage, read_write> blocks: array<u32, 16384>;
 
 const FRONT_FACE_VERTICES = array<vec3<f32>,6>(
     vec3(0., 0., 0.),
@@ -40,3 +40,13 @@ fn vs_main(@builtin(vertex_index) i: u32, @builtin(instance_index) block_index: 
 fn fs_main() -> @location(0) vec4f {
     return vec4f(1., 0., 0., 1.);
 }
+
+// Block: fffffffxxxxxyyyyyyyzzzzzttt
+// ffffff -> Front - Back - Top - Bottom - Left - Right
+// xxxxx -> x position in chunk
+// yyyyyyy -> y position in chunk 
+// zzzzz -> z position in chunk
+// ttt
+// 000 -> Stone
+// 001 -> Dirt
+// 010 -> Moss / Grass
