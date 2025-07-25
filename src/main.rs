@@ -10,9 +10,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let seed: u32 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .as_secs()
-        .try_into()
-        .unwrap();
+        .as_nanos() as u32;
+    // let seed = seed & 255;
 
     let mut window_state = rendering::StateApplication::new(seed);
     event_loop.run_app(&mut window_state)?;

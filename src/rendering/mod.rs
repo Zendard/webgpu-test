@@ -6,6 +6,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window, WindowId};
 
+pub mod block;
 mod camera;
 mod hardware;
 mod texture;
@@ -125,10 +126,10 @@ pub struct State<'a> {
     camera: camera::Camera,
     mouse_pressed: bool,
 
-    block_buffer: wgpu::Buffer,
-    block_bind_group: wgpu::BindGroup,
+    generation_setup: block::GenerationSetup,
     seed: u32,
     textures_bind_group: wgpu::BindGroup,
+    face_amount: u32,
 }
 
 impl<'a> State<'a> {
@@ -161,45 +162,10 @@ impl<'a> State<'a> {
         )
         .unwrap();
 
+        let generation_setup = block::GenerationSetup::new(&device, seed);
+
         let (camera, camera_bind_group_layout) =
             camera::Camera::new(cgmath::Deg(45.), 0.1, 100., 10., 2.0, &device);
-
-        let block_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Block Buffer"),
-            mapped_at_creation: false,
-            size: 1572864,
-            usage: wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let block_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Block bind group layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let block_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Block bind group"),
-            layout: &block_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    size: None,
-                    offset: 0,
-                    buffer: &block_buffer,
-                }),
-            }],
-        });
 
         let (textures_bind_group, textures_bind_group_layout) = texture::create_bind_groups(
             &device,
@@ -225,7 +191,7 @@ impl<'a> State<'a> {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &camera_bind_group_layout,
-                    &block_bind_group_layout,
+                    &generation_setup.bind_group_layout,
                     &textures_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -273,7 +239,7 @@ impl<'a> State<'a> {
         let terrain_gen_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Terrain gen Pipeline Layout"),
-                bind_group_layouts: &[&block_bind_group_layout],
+                bind_group_layouts: &[&generation_setup.bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -287,7 +253,8 @@ impl<'a> State<'a> {
                 cache: None,
             });
 
-        crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, &block_bind_group);
+        let face_amount =
+            crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, &generation_setup);
         // queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
 
         Self {
@@ -302,8 +269,8 @@ impl<'a> State<'a> {
             terrain_gen_pipeline,
             seed,
             textures_bind_group,
-            block_buffer,
-            block_bind_group,
+            generation_setup,
+            face_amount: face_amount,
         }
     }
 
@@ -391,14 +358,25 @@ impl<'a> State<'a> {
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
-        render_pass.set_bind_group(1, &self.block_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.generation_setup.bind_group, &[]);
         render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
 
-        render_pass.draw(0..12, 0..1024);
+        render_pass.draw(0..6, 0..(self.face_amount - 1));
         drop(render_pass);
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
+    }
+
+    fn read_face_amount(&mut self) -> u32 {
+        println!("Reading amount of faces...");
+        self.generation_setup
+            .state_buffer
+            .map_async(wgpu::MapMode::Read, 4..9, |res| res.unwrap());
+        self.device.poll(wgpu::PollType::Wait).unwrap();
+        let raw_face_amount = self.generation_setup.state_buffer.get_mapped_range(4..9);
+        let face_amount: &u32 = bytemuck::from_bytes(&raw_face_amount);
+        *face_amount
     }
 }
