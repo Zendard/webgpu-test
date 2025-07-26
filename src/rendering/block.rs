@@ -1,5 +1,3 @@
-use wgpu::util::DeviceExt;
-
 #[derive(Debug, Clone)]
 pub struct GenerationSetup {
     pub bind_group: wgpu::BindGroup,
@@ -11,23 +9,19 @@ pub struct GenerationSetup {
 }
 
 impl GenerationSetup {
-    pub fn new(device: &wgpu::Device, seed: u32) -> Self {
-        let state = State {
-            block_amount: 0,
-            face_amount: 0,
-            seed,
-        };
-        let state_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let state_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("State Buffer"),
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            contents: bytemuck::cast_slice(&[state]),
+            size: 144,
+            mapped_at_creation: false,
         });
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("State Buffer"),
             mapped_at_creation: false,
-            size: std::mem::size_of::<State>() as u64,
+            size: 144,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         });
         let block_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -130,5 +124,6 @@ impl GenerationSetup {
 pub struct State {
     pub block_amount: u32,
     pub face_amount: u32,
-    pub seed: u32,
+    pub gradient_vectors: [[f32; 3]; 8],
+    padding: [f32; 10],
 }

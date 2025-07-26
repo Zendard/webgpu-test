@@ -9,8 +9,9 @@ struct Camera {
 }
 
 struct State {
-    block_amount: u32,
-    face_amount: u32,
+    block_amount: atomic<u32>,
+    face_amount: atomic<u32>,
+    gradient_vectors: array<vec3<f32>,8>
 }
 
 struct Face {
@@ -119,16 +120,16 @@ fn decode_face(packed: u32) -> Face {
     var voxel: Face;
 
     // Face flags: bits 31–26
-    voxel.rotation = (packed >> 26u) & 0x3Fu; // 0b111111 = 6 bits
+    voxel.rotation = (packed >> 20) & 0x3Fu; // 0b111111 = 6 bits
 
     // X position: bits 25–21
-    voxel.x = (packed >> 21u) & 0x1Fu; // 0b11111 = 5 bits
+    voxel.x = (packed >> 14u) & 0x1Fu; // 0b11111 = 5 bits
 
     // Y position: bits 20–14
-    voxel.y = (packed >> 14u) & 0x7Fu; // 0b1111111 = 7 bits
+    voxel.y = (packed >> 7u) & 0x7Fu; // 0b1111111 = 7 bits
 
     // Z position: bits 13–9
-    voxel.z = (packed >> 9u) & 0x1Fu; // 0b11111 = 5 bits
+    voxel.z = (packed >> 2u) & 0x1Fu; // 0b11111 = 5 bits
 
     // Type ID: bits 2–0
     voxel.type_id = packed & 0x7u; // 0b111 = 3 bits

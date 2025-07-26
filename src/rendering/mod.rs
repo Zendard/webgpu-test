@@ -162,7 +162,7 @@ impl<'a> State<'a> {
         )
         .unwrap();
 
-        let generation_setup = block::GenerationSetup::new(&device, seed);
+        let generation_setup = block::GenerationSetup::new(&device);
 
         let (camera, camera_bind_group_layout) =
             camera::Camera::new(cgmath::Deg(45.), 0.1, 100., 10., 2.0, &device);

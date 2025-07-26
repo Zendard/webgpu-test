@@ -1,4 +1,4 @@
-use cgmath::InnerSpace;
+use cgmath::{vec3, InnerSpace, Vector3};
 
 pub fn generate(
     device: &wgpu::Device,
@@ -6,6 +6,8 @@ pub fn generate(
     terrain_gen_pipeline: &wgpu::ComputePipeline,
     generation_setup: &crate::rendering::block::GenerationSetup,
 ) -> u32 {
+    println!("Generating and copying gradient vectors...");
+    copy_gradient_vectors(queue, &generation_setup.state_buffer);
     println!("Dispatching terrain generation...");
     unsafe {
         device.start_graphics_debugger_capture();
@@ -50,4 +52,40 @@ pub fn generate(
 
     println!("Done");
     face_amount
+}
+
+fn copy_gradient_vectors(queue: &wgpu::Queue, state_buffer: &wgpu::Buffer) {
+    let vec0 = random_unit_vec3();
+    let vec1 = random_unit_vec3();
+    let vec2 = random_unit_vec3();
+    let vec3 = random_unit_vec3();
+    let vec4 = random_unit_vec3();
+    let vec5 = random_unit_vec3();
+    let vec6 = random_unit_vec3();
+    let vec7 = random_unit_vec3();
+    let vec_array = &[
+        vec0.as_slice(),
+        vec1.as_slice(),
+        vec2.as_slice(),
+        vec3.as_slice(),
+        vec4.as_slice(),
+        vec5.as_slice(),
+        vec6.as_slice(),
+        vec7.as_slice(),
+    ];
+    queue.write_buffer(state_buffer, 8, bytemuck::cast_slice(vec_array));
+}
+
+fn random_unit_vec3() -> Vector3<f32> {
+    let vector: Vector3<f32> = vec3(rand::random(), rand::random(), rand::random());
+    vector.normalize()
+}
+
+trait AsF32Slice {
+    fn as_slice(&self) -> [f32; 3];
+}
+impl AsF32Slice for Vector3<f32> {
+    fn as_slice(&self) -> [f32; 3] {
+        [self.x, self.y, self.z]
+    }
 }
