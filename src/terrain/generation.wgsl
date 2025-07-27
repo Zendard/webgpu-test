@@ -15,6 +15,7 @@ fn gen_main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
     let global_id_signed = vec3<i32>(global_id);
+    let index = atomicAdd(&state.block_amount, 1u);
   // Return if the block doesn't exist
     if !check_block(global_id_signed) {
         return;
@@ -24,46 +25,52 @@ fn gen_main(
   // Add faces
     if !check_block(global_id_signed + vec3<i32>(0, 0, -1)) {
         block |= 1 << 25;
-        let face: u32 = 1 << 25 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
-        let index = atomicAdd(&state.face_amount, 1u);
-        faces[index] = face;
+
+        let face: u32 = (index << 3) | 0;
+        let face_index = atomicAdd(&state.face_amount, 1u);
+        faces[face_index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(0, 0, 1)) {
         block |= 1 << 24;
-        let face: u32 = 1 << 24 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
-        let index = atomicAdd(&state.face_amount, 1u);
-        faces[index] = face;
+
+        let face: u32 = (index << 3) | 1;
+        let face_index = atomicAdd(&state.face_amount, 1u);
+        faces[face_index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(0, 1, 0)) {
         block |= 1 << 23;
-        let face: u32 = 1 << 23 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
-        let index = atomicAdd(&state.face_amount, 1u);
-        faces[index] = face;
+        block |= 2; // Add moss texture
+
+        let face: u32 = (index << 3) | 2;
+        let face_index = atomicAdd(&state.face_amount, 1u);
+        faces[face_index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(0, -1, 0)) {
         block |= 1 << 22;
-        let face: u32 = 1 << 22 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
-        let index = atomicAdd(&state.face_amount, 1u);
-        faces[index] = face;
+
+        let face: u32 = (index << 3) | 3;
+        let face_index = atomicAdd(&state.face_amount, 1u);
+        faces[face_index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(-1, 0, 0)) {
         block |= 1 << 21;
-        let face: u32 = 1 << 21 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
-        let index = atomicAdd(&state.face_amount, 1u);
-        faces[index] = face;
+
+        let face: u32 = (index << 3) | 4;
+        let face_index = atomicAdd(&state.face_amount, 1u);
+        faces[face_index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(1, 0, 0)) {
         block |= 1 << 20;
-        let face: u32 = 1 << 20 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
-        let index = atomicAdd(&state.face_amount, 1u);
-        faces[index] = face;
+
+        let face: u32 = (index << 3) | 5;
+        let face_index = atomicAdd(&state.face_amount, 1u);
+        faces[face_index] = face;
     }
 
   // Add positions
     block |= (global_id.x & 0x1F) << 15; // 0b11111
     block |= (global_id.y & 0x7F) << 8;  // 0b1111111
     block |= (global_id.z & 0x1F) << 3;  // 0b11111
-    let index = atomicAdd(&state.block_amount, 1u);
     blocks[index] = block;
     //blocks[index] = perlin_noise(global_id_signed);
     //let block_debug = unpack_block_data(block) ;

@@ -98,27 +98,27 @@ fn vs_main(@builtin(vertex_index) i: u32, @builtin(instance_index) face_index: u
 
     switch face.rotation{
       // 0b100000
-      case 0x20{
+      case 0x0{
             local_pos = FRONT_FACE_VERTICES[i];
         }
       //0b010000
-      case 0x10{
+      case 0x1{
             local_pos = BACK_FACE_VERTICES[i];
         }
       //0b001000
-      case 0x8{
+      case 0x2{
             local_pos = TOP_FACE_VERTICES[i];
         }
       //0b000100
-      case 0x4 {
+      case 0x3 {
             local_pos = BOTTOM_FACE_VERTICES[i];
         }
       //0b000010
-      case 0x2 {
+      case 0x4 {
             local_pos = LEFT_FACE_VERTICES[i];
         }
       //0b000001
-      case 0x1 {
+      case 0x5 {
             local_pos = RIGHT_FACE_VERTICES[i];
         }
       default {
@@ -129,7 +129,9 @@ fn vs_main(@builtin(vertex_index) i: u32, @builtin(instance_index) face_index: u
     let world_pos = local_pos + vec3f(f32(face.x), f32(face.y), f32(face.z));
     out.position = camera.view_proj * vec4f(world_pos, 1.);
     out.tex_coord = TEX_COORDS[i];
+
     out.texture_id = face.texture_id;
+
     return out;
     //return vec4f(world_pos, 1.);
 }
@@ -152,25 +154,32 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
     }
 }
 
+// Face: ...fff
+// ... -> u32 block index
+// fff -> Front - Back - Top - Bottom - Left - Right
+
 fn decode_face(packed: u32) -> Face {
-    var voxel: Face;
+    var face: Face;
+
+    let linked_block_index = packed >> 3;
+    let linked_block = blocks[linked_block_index];
 
     // Face flags: bits 31–26
-    voxel.rotation = (packed >> 20) & 0x3Fu; // 0b111111 = 6 bits
+    face.rotation = packed & 0x7; // 0b111 = 6 bits
 
     // X position: bits 25–21
-    voxel.x = (packed >> 15u) & 0x1Fu; // 0b11111 = 5 bits
+    face.x = (linked_block >> 15u) & 0x1Fu; // 0b11111 = 5 bits
 
     // Y position: bits 20–14
-    voxel.y = (packed >> 8u) & 0x7Fu; // 0b1111111 = 7 bits
+    face.y = (linked_block >> 8u) & 0x7Fu; // 0b1111111 = 7 bits
 
     // Z position: bits 13–9
-    voxel.z = (packed >> 3u) & 0x1Fu; // 0b11111 = 5 bits
+    face.z = (linked_block >> 3u) & 0x1Fu; // 0b11111 = 5 bits
 
     // Type ID: bits 2–0
-    voxel.texture_id = packed & 0x7u; // 0b111 = 3 bits
+    face.texture_id = linked_block & 0x7u; // 0b111 = 3 bits
 
-    return voxel;
+    return face;
 }
 
 // Block: ffffffxxxxxyyyyyyyzzzzzttt
