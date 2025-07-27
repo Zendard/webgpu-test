@@ -83,7 +83,8 @@ fn check_block(pos: vec3<i32>) -> bool {
 }
 
 fn perlin_noise(pos: vec3<i32>) -> f32 {
-    let pos_float = vec3<f32>(f32(pos.x), f32(pos.y), f32(pos.z));
+    let pos_adjusted = pos + vec3<i32>(0, -32, 0);
+    let pos_float = vec3<f32>(f32(pos_adjusted.x), f32(pos_adjusted.y), f32(pos_adjusted.z));
     // Vectors to edges of chunk
     let vec_0 = normalize(-pos_float);
     let vec_1 = normalize(-pos_float + vec3(32, 0, 0));
