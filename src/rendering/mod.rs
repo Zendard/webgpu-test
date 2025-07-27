@@ -122,6 +122,8 @@ pub struct State<'a> {
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
     terrain_gen_pipeline: wgpu::ComputePipeline,
+    depth_texture: texture::Texture,
+    depth_sampler: wgpu::Sampler,
 
     camera: camera::Camera,
     mouse_pressed: bool,
@@ -161,6 +163,9 @@ impl<'a> State<'a> {
             "textures/moss_block.png",
         )
         .unwrap();
+
+        let (depth_texture, depth_sampler) =
+            texture::Texture::create_depth_texture(&device, &config, "Depth texture");
 
         let generation_setup = block::GenerationSetup::new(&device);
 
@@ -226,7 +231,13 @@ impl<'a> State<'a> {
                 unclipped_depth: false,
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -269,6 +280,8 @@ impl<'a> State<'a> {
             terrain_gen_pipeline,
             seed,
             textures_bind_group,
+            depth_texture,
+            depth_sampler,
             generation_setup,
             face_amount: face_amount,
         }
@@ -284,6 +297,10 @@ impl<'a> State<'a> {
         self.surface.configure(&self.device, &self.config);
         self.camera
             .resize(new_size.width, new_size.height, &self.queue);
+        let (depth_texture, depth_sampler) =
+            texture::Texture::create_depth_texture(&self.device, &self.config, "Depth texture");
+        self.depth_texture = depth_texture;
+        self.depth_sampler = depth_sampler;
     }
 
     fn handle_key(&mut self, _event_loop: &ActiveEventLoop, key: KeyCode, pressed: bool) {
@@ -351,7 +368,14 @@ impl<'a> State<'a> {
                 },
                 depth_slice: None,
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_texture.raw_texture.view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             occlusion_query_set: None,
             timestamp_writes: None,
         });
