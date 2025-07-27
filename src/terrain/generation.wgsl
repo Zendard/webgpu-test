@@ -44,6 +44,8 @@ fn gen_main(
         let face: u32 = (index << 3) | 2;
         let face_index = atomicAdd(&state.face_amount, 1u);
         faces[face_index] = face;
+    } else if !check_block(global_id_signed + vec3<i32>(0, 3, 0)) {
+        block |= 1; // Add dirt texture
     }
     if !check_block(global_id_signed + vec3<i32>(0, -1, 0)) {
         block |= 1 << 22;
