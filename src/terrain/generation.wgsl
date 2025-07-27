@@ -23,38 +23,38 @@ fn gen_main(
 
   // Add faces
     if !check_block(global_id_signed + vec3<i32>(0, 0, -1)) {
-        block |= 1 << 26;
-        let face: u32 = 1 << 25 | ((global_id.x & 0x1F) << 14) | ((global_id.y & 0x7F) << 7) | ((global_id.z & 0x1F) << 2);
+        block |= 1 << 25;
+        let face: u32 = 1 << 25 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
         let index = atomicAdd(&state.face_amount, 1u);
         faces[index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(0, 0, 1)) {
-        block |= 1 << 25;
-        let face: u32 = 1 << 24 | ((global_id.x & 0x1F) << 14) | ((global_id.y & 0x7F) << 7) | ((global_id.z & 0x1F) << 2);
+        block |= 1 << 24;
+        let face: u32 = 1 << 24 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
         let index = atomicAdd(&state.face_amount, 1u);
         faces[index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(0, 1, 0)) {
-        block |= 1 << 24;
-        let face: u32 = 1 << 23 | ((global_id.x & 0x1F) << 14) | ((global_id.y & 0x7F) << 7) | ((global_id.z & 0x1F) << 2);
+        block |= 1 << 23;
+        let face: u32 = 1 << 23 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
         let index = atomicAdd(&state.face_amount, 1u);
         faces[index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(0, -1, 0)) {
-        block |= 1 << 23;
-        let face: u32 = 1 << 22 | ((global_id.x & 0x1F) << 14) | ((global_id.y & 0x7F) << 7) | ((global_id.z & 0x1F) << 2);
+        block |= 1 << 22;
+        let face: u32 = 1 << 22 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
         let index = atomicAdd(&state.face_amount, 1u);
         faces[index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(-1, 0, 0)) {
-        block |= 1 << 22;
-        let face: u32 = 1 << 21 | ((global_id.x & 0x1F) << 14) | ((global_id.y & 0x7F) << 7) | ((global_id.z & 0x1F) << 2);
+        block |= 1 << 21;
+        let face: u32 = 1 << 21 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
         let index = atomicAdd(&state.face_amount, 1u);
         faces[index] = face;
     }
     if !check_block(global_id_signed + vec3<i32>(1, 0, 0)) {
-        block |= 1 << 21;
-        let face: u32 = 1 << 20 | ((global_id.x & 0x1F) << 14) | ((global_id.y & 0x7F) << 7) | ((global_id.z & 0x1F) << 2);
+        block |= 1 << 20;
+        let face: u32 = 1 << 20 | ((global_id.x & 0x1F) << 15) | ((global_id.y & 0x7F) << 8) | ((global_id.z & 0x1F) << 3);
         let index = atomicAdd(&state.face_amount, 1u);
         faces[index] = face;
     }
