@@ -170,7 +170,7 @@ impl<'a> State<'a> {
         let generation_setup = block::GenerationSetup::new(&device);
 
         let (camera, camera_bind_group_layout) =
-            camera::Camera::new(cgmath::Deg(45.), 0.1, 100., 10., 2.0, &device);
+            camera::Camera::new(cgmath::Deg(60.), 0.1, 100., 10., 2.0, &device);
 
         let (textures_bind_group, textures_bind_group_layout) = texture::create_bind_groups(
             &device,

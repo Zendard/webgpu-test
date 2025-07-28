@@ -72,7 +72,7 @@ impl Camera {
 
         (
             Self {
-                position: point3(0., 0., 0.),
+                position: point3(16., 64., 16.),
                 yaw: Rad(0.),
                 pitch: Rad(0.),
                 buffer,
