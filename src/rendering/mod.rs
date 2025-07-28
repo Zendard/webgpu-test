@@ -264,8 +264,13 @@ impl<'a> State<'a> {
                 cache: None,
             });
 
-        let face_amount =
-            crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, &generation_setup);
+        let chunk = crate::terrain::generate(
+            &device,
+            &queue,
+            &terrain_gen_pipeline,
+            &generation_setup,
+            (0, 0),
+        );
         // queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
 
         Self {
@@ -283,7 +288,7 @@ impl<'a> State<'a> {
             depth_texture,
             depth_sampler,
             generation_setup,
-            face_amount: face_amount,
+            face_amount: chunk.face_amount,
         }
     }
 
@@ -385,7 +390,7 @@ impl<'a> State<'a> {
         render_pass.set_bind_group(1, &self.generation_setup.bind_group, &[]);
         render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
 
-        render_pass.draw(0..6, 0..(self.face_amount - 1));
+        render_pass.draw(0..6, 0..(self.face_amount));
         drop(render_pass);
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

@@ -5,21 +5,23 @@
 struct State {
     block_amount: atomic<u32>,
     face_amount: atomic<u32>,
+    chunk_position: vec2<i32>,
     gradient_vectors: array<vec3<f32>,8>,
 }
 
 const U32_MAX:f32 = 4294967296;
+const PERLIN_NOISE_OFFSET:vec3<i32> = vec3(0, -64, 0);
 
-@compute @workgroup_size(32,1,1)
+@compute @workgroup_size(1,128,2)
 fn gen_main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
     let global_id_signed = vec3<i32>(global_id);
-    let index = atomicAdd(&state.block_amount, 1u);
   // Return if the block doesn't exist
     if !check_block(global_id_signed) {
         return;
     }
+    let index = atomicAdd(&state.block_amount, 1u);
     var block: u32 = 0;
 
   // Add faces
@@ -85,7 +87,7 @@ fn check_block(pos: vec3<i32>) -> bool {
 }
 
 fn perlin_noise(pos: vec3<i32>) -> f32 {
-    let pos_adjusted = pos + vec3<i32>(0, -32, 0);
+    let pos_adjusted = pos + PERLIN_NOISE_OFFSET;
     let pos_float = vec3<f32>(f32(pos_adjusted.x), f32(pos_adjusted.y), f32(pos_adjusted.z));
     // Vectors to edges of chunk
     let vec_0 = normalize(-pos_float);

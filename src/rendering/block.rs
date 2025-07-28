@@ -15,14 +15,14 @@ impl GenerationSetup {
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            size: 144,
+            size: std::mem::size_of::<State>() as u64,
             mapped_at_creation: false,
         });
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("State Buffer"),
-            mapped_at_creation: false,
-            size: 144,
+            label: Some("Staging Buffer"),
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            size: std::mem::size_of::<State>() as u64,
+            mapped_at_creation: false,
         });
         let block_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Block Buffer"),
@@ -124,6 +124,8 @@ impl GenerationSetup {
 pub struct State {
     pub block_amount: u32,
     pub face_amount: u32,
+    pub chunk_position: [i32; 2],
+    pub position_offset: [i32; 3],
     pub gradient_vectors: [[f32; 3]; 8],
-    padding: [f32; 10],
+    padding: [u32; 13],
 }

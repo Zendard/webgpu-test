@@ -1,12 +1,28 @@
 use cgmath::{vec3, InnerSpace, Vector3};
 
+use crate::rendering::block::State;
+
+pub struct Chunk {
+    pub position: (i32, i32),
+    pub block_amount: u32,
+    pub face_amount: u32,
+    block_buffer: wgpu::Buffer,
+    face_buffer: wgpu::Buffer,
+}
+
 pub fn generate(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     terrain_gen_pipeline: &wgpu::ComputePipeline,
     generation_setup: &crate::rendering::block::GenerationSetup,
-) -> u32 {
+    chunk_position: (i32, i32),
+) -> Chunk {
     println!("Generating and copying gradient vectors...");
+    queue.write_buffer(
+        &generation_setup.state_buffer,
+        std::mem::offset_of!(State, chunk_position) as u64,
+        bytemuck::cast_slice(&[chunk_position.0, chunk_position.1]),
+    );
     copy_gradient_vectors(queue, &generation_setup.state_buffer);
     println!("Dispatching terrain generation...");
     unsafe {
@@ -23,7 +39,7 @@ pub fn generate(
 
     terrain_gen_pass.set_pipeline(terrain_gen_pipeline);
     terrain_gen_pass.set_bind_group(0, &generation_setup.bind_group, &[]);
-    terrain_gen_pass.dispatch_workgroups(1, 32, 32);
+    terrain_gen_pass.dispatch_workgroups(32, 1, 16);
 
     drop(terrain_gen_pass);
     encoder.copy_buffer_to_buffer(
@@ -43,15 +59,21 @@ pub fn generate(
     device.poll(wgpu::PollType::Wait).unwrap();
 
     let data = buffer_slice.get_mapped_range();
-
-    let result: &crate::rendering::block::State = bytemuck::from_bytes(&data);
-    println!("{:?}", result);
-    let face_amount = result.face_amount;
+    let data_copy = data.to_owned();
     drop(data);
     generation_setup.staging_buffer.unmap();
 
+    let result: &State = bytemuck::from_bytes(&data_copy);
+    println!("{:?}", result);
+
     println!("Done");
-    face_amount
+    Chunk {
+        position: chunk_position,
+        block_amount: result.block_amount,
+        face_amount: result.face_amount,
+        block_buffer: generation_setup.block_buffer.clone(),
+        face_buffer: generation_setup.face_buffer.clone(),
+    }
 }
 
 fn copy_gradient_vectors(queue: &wgpu::Queue, state_buffer: &wgpu::Buffer) {
@@ -73,7 +95,11 @@ fn copy_gradient_vectors(queue: &wgpu::Queue, state_buffer: &wgpu::Buffer) {
         vec6.as_slice(),
         vec7.as_slice(),
     ];
-    queue.write_buffer(state_buffer, 8, bytemuck::cast_slice(vec_array));
+    queue.write_buffer(
+        state_buffer,
+        std::mem::offset_of!(State, gradient_vectors) as u64,
+        bytemuck::cast_slice(vec_array),
+    );
 }
 
 fn random_unit_vec3() -> Vector3<f32> {
