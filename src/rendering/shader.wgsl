@@ -7,6 +7,8 @@
 @group(2) @binding(2) var dirt_texture: texture_2d<f32>;
 @group(2) @binding(3) var moss_texture: texture_2d<f32>;
 
+const CHUNK_SIZE:vec3<u32> = vec3(32, 128, 32);
+
 struct Camera {
     view_pos: vec4<f32>,
     view_proj: mat4x4<f32>,
@@ -15,8 +17,10 @@ struct Camera {
 struct State {
     block_amount: atomic<u32>,
     face_amount: atomic<u32>,
-    gradient_vectors: array<vec3<f32>,8>
+    chunk_position: vec2<i32>,
+    gradient_vectors: array<vec3<f32>,8>,
 }
+
 
 struct Face {
     rotation: u32,   // 6 bits
@@ -125,8 +129,9 @@ fn vs_main(@builtin(vertex_index) i: u32, @builtin(instance_index) face_index: u
             return out;
         }
 }
-
-    let world_pos = local_pos + vec3f(f32(face.x), f32(face.y), f32(face.z));
+    let chunk_offset = vec3f(f32(state.chunk_position.x * i32(CHUNK_SIZE.x)), 0.,
+        f32(state.chunk_position.y * i32(CHUNK_SIZE.z)));
+    let world_pos = local_pos + vec3f(f32(face.x), f32(face.y), f32(face.z)) + chunk_offset;
     out.position = camera.view_proj * vec4f(world_pos, 1.);
     out.tex_coord = TEX_COORDS[i];
 

@@ -12,6 +12,7 @@ mod hardware;
 mod texture;
 
 // const RENDER_DISTANCE: u32 = 2;
+const CHUNK_SIZE: (u32, u32, u32) = (32, 128, 32);
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -132,6 +133,7 @@ pub struct State<'a> {
     seed: u32,
     textures_bind_group: wgpu::BindGroup,
     face_amount: u32,
+    current_chunk: (i32, i32),
 }
 
 impl<'a> State<'a> {
@@ -289,6 +291,7 @@ impl<'a> State<'a> {
             depth_sampler,
             generation_setup,
             face_amount: chunk.face_amount,
+            current_chunk: chunk.position,
         }
     }
 
@@ -342,6 +345,21 @@ impl<'a> State<'a> {
 
     fn update(&mut self, dt: std::time::Duration) {
         self.camera.update_camera(dt, &self.queue);
+        let rounded_camera_position: (i32, i32) = (
+            self.camera.position.x.floor() as i32,
+            self.camera.position.z.floor() as i32,
+        );
+
+        if rounded_camera_position.0 > (self.current_chunk.0 + 1) * CHUNK_SIZE.0 as i32 {
+            self.current_chunk.0 += 1;
+            crate::terrain::generate(
+                &self.device,
+                &self.queue,
+                &self.terrain_gen_pipeline,
+                &self.generation_setup,
+                self.current_chunk,
+            );
+        }
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -396,16 +414,5 @@ impl<'a> State<'a> {
         output.present();
 
         Ok(())
-    }
-
-    fn read_face_amount(&mut self) -> u32 {
-        println!("Reading amount of faces...");
-        self.generation_setup
-            .state_buffer
-            .map_async(wgpu::MapMode::Read, 4..9, |res| res.unwrap());
-        self.device.poll(wgpu::PollType::Wait).unwrap();
-        let raw_face_amount = self.generation_setup.state_buffer.get_mapped_range(4..9);
-        let face_amount: &u32 = bytemuck::from_bytes(&raw_face_amount);
-        *face_amount
     }
 }

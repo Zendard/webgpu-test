@@ -18,7 +18,7 @@ const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
 #[derive(Debug)]
 pub struct Camera {
-    position: Point3<f32>,
+    pub position: Point3<f32>,
     yaw: Rad<f32>,
     pitch: Rad<f32>,
     camera_uniform: CameraUniform,
