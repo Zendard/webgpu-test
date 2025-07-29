@@ -350,8 +350,36 @@ impl<'a> State<'a> {
             self.camera.position.z.floor() as i32,
         );
 
-        if rounded_camera_position.0 > (self.current_chunk.0 + 1) * CHUNK_SIZE.0 as i32 {
+        if rounded_camera_position.0 > ((self.current_chunk.0 + 1) * CHUNK_SIZE.0 as i32) - 1 {
             self.current_chunk.0 += 1;
+            crate::terrain::generate(
+                &self.device,
+                &self.queue,
+                &self.terrain_gen_pipeline,
+                &self.generation_setup,
+                self.current_chunk,
+            );
+        } else if rounded_camera_position.0 < (self.current_chunk.0) * CHUNK_SIZE.0 as i32 {
+            self.current_chunk.0 -= 1;
+            crate::terrain::generate(
+                &self.device,
+                &self.queue,
+                &self.terrain_gen_pipeline,
+                &self.generation_setup,
+                self.current_chunk,
+            );
+        } else if rounded_camera_position.1 > ((self.current_chunk.1 + 1) * CHUNK_SIZE.2 as i32) - 1
+        {
+            self.current_chunk.1 += 1;
+            crate::terrain::generate(
+                &self.device,
+                &self.queue,
+                &self.terrain_gen_pipeline,
+                &self.generation_setup,
+                self.current_chunk,
+            );
+        } else if rounded_camera_position.1 < (self.current_chunk.1) * CHUNK_SIZE.2 as i32 {
+            self.current_chunk.1 -= 1;
             crate::terrain::generate(
                 &self.device,
                 &self.queue,
