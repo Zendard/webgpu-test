@@ -2,6 +2,16 @@
 @group(0) @binding(1) var<storage, read_write> blocks: array<u32, 16384>;
 @group(0) @binding(2) var<storage, read_write> faces: array<u32, 16384>;
 
+// Gradient vectors:
+//      6---------7
+//     /|        /|
+//    2-------- 3 |
+//    | |       | |
+//    | 4-------|-5
+//    |/        |/
+//    0---------1
+ 
+
 struct State {
     block_amount: atomic<u32>,
     face_amount: atomic<u32>,
@@ -84,7 +94,7 @@ fn gen_main(
 
 fn check_block(pos: vec3<i32>) -> bool {
     let noise_value = perlin_noise(pos);
-    return noise_value > -0.6;
+    return noise_value > 0;
 }
 
 fn perlin_noise(pos: vec3<i32>) -> f32 {
@@ -95,19 +105,19 @@ fn perlin_noise(pos: vec3<i32>) -> f32 {
     let vec_1 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), 0, 0));
     let vec_2 = normalize(-pos_float + vec3(0, f32(CHUNK_SIZE.y), 0));
     let vec_3 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), 0));
-    let vec_4 = normalize(-pos_float + vec3(0, 0, f32(CHUNK_SIZE.x)));
+    let vec_4 = normalize(-pos_float + vec3(0, 0, f32(CHUNK_SIZE.z)));
     let vec_5 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), 0, f32(CHUNK_SIZE.z)));
-    let vec_6 = normalize(-pos_float + vec3(0, f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.x)));
+    let vec_6 = normalize(-pos_float + vec3(0, f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
     let vec_7 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
 
     let influence0 = dot(vec_0, state.gradient_vectors[0]);
-    let influence1 = dot(vec_0, state.gradient_vectors[1]);
-    let influence2 = dot(vec_0, state.gradient_vectors[2]);
-    let influence3 = dot(vec_0, state.gradient_vectors[3]);
-    let influence4 = dot(vec_0, state.gradient_vectors[4]);
-    let influence5 = dot(vec_0, state.gradient_vectors[5]);
-    let influence6 = dot(vec_0, state.gradient_vectors[6]);
-    let influence7 = dot(vec_0, state.gradient_vectors[7]);
+    let influence1 = dot(vec_1, state.gradient_vectors[1]);
+    let influence2 = dot(vec_2, state.gradient_vectors[2]);
+    let influence3 = dot(vec_3, state.gradient_vectors[3]);
+    let influence4 = dot(vec_4, state.gradient_vectors[4]);
+    let influence5 = dot(vec_5, state.gradient_vectors[5]);
+    let influence6 = dot(vec_6, state.gradient_vectors[6]);
+    let influence7 = dot(vec_7, state.gradient_vectors[7]);
 
     let x_weight = pos_float.x / f32(CHUNK_SIZE.x);
     let y_weight = pos_float.y / f32(CHUNK_SIZE.y);
