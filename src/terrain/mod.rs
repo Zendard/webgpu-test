@@ -2,6 +2,7 @@ use cgmath::{vec3, InnerSpace, Vector3};
 
 use crate::rendering::block::State;
 
+#[derive(Debug, Clone)]
 pub struct Chunk {
     pub position: (i32, i32),
     pub block_amount: u32,
@@ -87,9 +88,7 @@ fn copy_gradient_vectors(
 ) -> [Vector3<f32>; 8] {
     let all_vectors: [Vector3<f32>; 8] =
         std::array::from_fn(|i| gradient_vectors[i].unwrap_or_else(random_unit_vec3));
-    dbg!(&all_vectors);
     let raw_vectors: [f32; 24] = std::array::from_fn(|i| all_vectors[i / 3].as_slice()[i % 3]);
-    dbg!(&raw_vectors);
 
     queue.write_buffer(
         state_buffer,

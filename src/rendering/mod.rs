@@ -6,6 +6,8 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window, WindowId};
 
+use crate::terrain::Chunk;
+
 pub mod block;
 mod camera;
 mod hardware;
@@ -130,15 +132,14 @@ pub struct State<'a> {
     mouse_pressed: bool,
 
     generation_setup: block::GenerationSetup,
-    seed: u32,
     textures_bind_group: wgpu::BindGroup,
-    face_amount: u32,
-    current_chunk: (i32, i32),
+    current_chunk_index: usize,
+    chunks: Vec<Chunk>,
 }
 
 impl<'a> State<'a> {
     // Creating some of the wgpu types requires async code
-    async fn new(window: Window, seed: u32) -> State<'a> {
+    async fn new(window: Window, _seed: u32) -> State<'a> {
         let window = Arc::new(window);
         let window_clone = window.clone();
         let (device, config, queue, surface) = hardware::init(window_clone).await;
@@ -286,13 +287,12 @@ impl<'a> State<'a> {
             mouse_pressed: false,
             render_pipeline,
             terrain_gen_pipeline,
-            seed,
             textures_bind_group,
             depth_texture,
             depth_sampler,
             generation_setup,
-            face_amount: chunk.face_amount,
-            current_chunk: chunk.position,
+            current_chunk_index: 0,
+            chunks: vec![chunk],
         }
     }
 
@@ -350,46 +350,44 @@ impl<'a> State<'a> {
             self.camera.position.x.floor() as i32,
             self.camera.position.z.floor() as i32,
         );
+        let current_chunk = &self.chunks[self.current_chunk_index];
 
-        if rounded_camera_position.0 > ((self.current_chunk.0 + 1) * CHUNK_SIZE.0 as i32) - 1 {
-            self.current_chunk.0 += 1;
+        if rounded_camera_position.0 > ((current_chunk.position.0 + 1) * CHUNK_SIZE.0 as i32) - 1 {
             crate::terrain::generate(
                 &self.device,
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
-                self.current_chunk,
+                current_chunk.position,
                 [None; 8],
             );
-        } else if rounded_camera_position.0 < (self.current_chunk.0) * CHUNK_SIZE.0 as i32 {
-            self.current_chunk.0 -= 1;
+        } else if rounded_camera_position.0 < (current_chunk.position.0) * CHUNK_SIZE.0 as i32 {
             crate::terrain::generate(
                 &self.device,
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
-                self.current_chunk,
+                current_chunk.position,
                 [None; 8],
             );
-        } else if rounded_camera_position.1 > ((self.current_chunk.1 + 1) * CHUNK_SIZE.2 as i32) - 1
+        } else if rounded_camera_position.1
+            > ((current_chunk.position.1 + 1) * CHUNK_SIZE.2 as i32) - 1
         {
-            self.current_chunk.1 += 1;
             crate::terrain::generate(
                 &self.device,
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
-                self.current_chunk,
+                current_chunk.position,
                 [None; 8],
             );
-        } else if rounded_camera_position.1 < (self.current_chunk.1) * CHUNK_SIZE.2 as i32 {
-            self.current_chunk.1 -= 1;
+        } else if rounded_camera_position.1 < (current_chunk.position.1) * CHUNK_SIZE.2 as i32 {
             crate::terrain::generate(
                 &self.device,
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
-                self.current_chunk,
+                current_chunk.position,
                 [None; 8],
             );
         }
@@ -441,7 +439,7 @@ impl<'a> State<'a> {
         render_pass.set_bind_group(1, &self.generation_setup.bind_group, &[]);
         render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
 
-        render_pass.draw(0..6, 0..(self.face_amount));
+        render_pass.draw(0..6, 0..(self.chunks[self.current_chunk_index].face_amount));
         drop(render_pass);
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
