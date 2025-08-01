@@ -1,25 +1,23 @@
+use crate::rendering::block::{GenerationSetup, State};
 use cgmath::{vec3, InnerSpace, Vector3};
-
-use crate::rendering::block::State;
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub position: (i32, i32),
     pub block_amount: u32,
     pub face_amount: u32,
-    block_buffer: wgpu::Buffer,
-    face_buffer: wgpu::Buffer,
     pub gradient_vectors: [Vector3<f32>; 8],
+    pub generation_setup: GenerationSetup,
 }
 
 pub fn generate(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     terrain_gen_pipeline: &wgpu::ComputePipeline,
-    generation_setup: &crate::rendering::block::GenerationSetup,
     chunk_position: (i32, i32),
     gradient_vectors: [Option<Vector3<f32>>; 8],
 ) -> Chunk {
+    let generation_setup = GenerationSetup::new(device);
     queue.write_buffer(
         &generation_setup.state_buffer,
         std::mem::offset_of!(State, chunk_position) as u64,
@@ -75,9 +73,8 @@ pub fn generate(
         position: chunk_position,
         block_amount: result.block_amount,
         face_amount: result.face_amount,
-        block_buffer: generation_setup.block_buffer.clone(),
-        face_buffer: generation_setup.face_buffer.clone(),
         gradient_vectors,
+        generation_setup,
     }
 }
 

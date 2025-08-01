@@ -1,4 +1,5 @@
 use pollster::FutureExt;
+use std::collections::HashMap;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -133,8 +134,8 @@ pub struct State<'a> {
 
     generation_setup: block::GenerationSetup,
     textures_bind_group: wgpu::BindGroup,
-    current_chunk_index: usize,
-    chunks: Vec<Chunk>,
+    current_chunk_position: (i32, i32),
+    chunks: HashMap<(i32, i32), Chunk>,
 }
 
 impl<'a> State<'a> {
@@ -170,8 +171,6 @@ impl<'a> State<'a> {
         let (depth_texture, depth_sampler) =
             texture::Texture::create_depth_texture(&device, &config, "Depth texture");
 
-        let generation_setup = block::GenerationSetup::new(&device);
-
         let (camera, camera_bind_group_layout) =
             camera::Camera::new(cgmath::Deg(60.), 0.1, 100., 10., 2.0, &device);
 
@@ -193,7 +192,7 @@ impl<'a> State<'a> {
             label: Some("Terrain Generation Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../terrain/generation.wgsl").into()),
         });
-
+        let generation_setup = block::GenerationSetup::new(&device);
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -267,15 +266,11 @@ impl<'a> State<'a> {
                 cache: None,
             });
 
-        let chunk = crate::terrain::generate(
-            &device,
-            &queue,
-            &terrain_gen_pipeline,
-            &generation_setup,
-            (0, 0),
-            [None; 8],
-        );
+        let chunk =
+            crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, (0, 0), [None; 8]);
         // queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
+        let mut chunks = HashMap::new();
+        chunks.insert(chunk.position, chunk);
 
         Self {
             surface,
@@ -291,8 +286,8 @@ impl<'a> State<'a> {
             depth_texture,
             depth_sampler,
             generation_setup,
-            current_chunk_index: 0,
-            chunks: vec![chunk],
+            current_chunk_position: (0, 0),
+            chunks,
         }
     }
 
@@ -350,46 +345,65 @@ impl<'a> State<'a> {
             self.camera.position.x.floor() as i32,
             self.camera.position.z.floor() as i32,
         );
-        let current_chunk = &self.chunks[self.current_chunk_index];
 
-        if rounded_camera_position.0 > ((current_chunk.position.0 + 1) * CHUNK_SIZE.0 as i32) - 1 {
-            crate::terrain::generate(
-                &self.device,
-                &self.queue,
-                &self.terrain_gen_pipeline,
-                &self.generation_setup,
-                current_chunk.position,
-                [None; 8],
-            );
-        } else if rounded_camera_position.0 < (current_chunk.position.0) * CHUNK_SIZE.0 as i32 {
-            crate::terrain::generate(
-                &self.device,
-                &self.queue,
-                &self.terrain_gen_pipeline,
-                &self.generation_setup,
-                current_chunk.position,
-                [None; 8],
-            );
-        } else if rounded_camera_position.1
-            > ((current_chunk.position.1 + 1) * CHUNK_SIZE.2 as i32) - 1
+        if rounded_camera_position.0
+            > ((self.current_chunk_position.0 + 1) * CHUNK_SIZE.0 as i32) - 1
         {
-            crate::terrain::generate(
+            self.current_chunk_position.0 += 1;
+            if self.chunks.contains_key(&self.current_chunk_position) {
+                return;
+            }
+            let chunk = crate::terrain::generate(
                 &self.device,
                 &self.queue,
                 &self.terrain_gen_pipeline,
-                &self.generation_setup,
-                current_chunk.position,
+                self.current_chunk_position,
                 [None; 8],
             );
-        } else if rounded_camera_position.1 < (current_chunk.position.1) * CHUNK_SIZE.2 as i32 {
-            crate::terrain::generate(
+            self.chunks.insert(self.current_chunk_position, chunk);
+        } else if rounded_camera_position.0 < (self.current_chunk_position.0) * CHUNK_SIZE.0 as i32
+        {
+            self.current_chunk_position.0 -= 1;
+            if self.chunks.contains_key(&self.current_chunk_position) {
+                return;
+            }
+            let chunk = crate::terrain::generate(
                 &self.device,
                 &self.queue,
                 &self.terrain_gen_pipeline,
-                &self.generation_setup,
-                current_chunk.position,
+                self.current_chunk_position,
                 [None; 8],
             );
+            self.chunks.insert(self.current_chunk_position, chunk);
+        } else if rounded_camera_position.1
+            > ((self.current_chunk_position.1 + 1) * CHUNK_SIZE.2 as i32) - 1
+        {
+            self.current_chunk_position.1 += 1;
+            if self.chunks.contains_key(&self.current_chunk_position) {
+                return;
+            }
+            let chunk = crate::terrain::generate(
+                &self.device,
+                &self.queue,
+                &self.terrain_gen_pipeline,
+                self.current_chunk_position,
+                [None; 8],
+            );
+            self.chunks.insert(self.current_chunk_position, chunk);
+        } else if rounded_camera_position.1 < (self.current_chunk_position.1) * CHUNK_SIZE.2 as i32
+        {
+            self.current_chunk_position.1 -= 1;
+            if self.chunks.contains_key(&self.current_chunk_position) {
+                return;
+            }
+            let chunk = crate::terrain::generate(
+                &self.device,
+                &self.queue,
+                &self.terrain_gen_pipeline,
+                self.current_chunk_position,
+                [None; 8],
+            );
+            self.chunks.insert(self.current_chunk_position, chunk);
         }
     }
 
@@ -433,13 +447,15 @@ impl<'a> State<'a> {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
-        render_pass.set_bind_group(1, &self.generation_setup.bind_group, &[]);
-        render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
 
-        render_pass.draw(0..6, 0..(self.chunks[self.current_chunk_index].face_amount));
+        for chunk in self.chunks.values() {
+            render_pass.set_bind_group(0, &self.camera.bind_group, &[]);
+            render_pass.set_bind_group(1, &chunk.generation_setup.bind_group, &[]);
+            render_pass.set_bind_group(2, &self.textures_bind_group, &[]);
+
+            render_pass.draw(0..6, 0..(chunk.face_amount));
+        }
         drop(render_pass);
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
