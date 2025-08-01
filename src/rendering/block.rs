@@ -125,7 +125,6 @@ pub struct State {
     pub block_amount: u32,
     pub face_amount: u32,
     pub chunk_position: [i32; 2],
-    pub position_offset: [i32; 3],
     pub gradient_vectors: [[f32; 3]; 8],
-    padding: [u32; 13],
+    padding: [u32; 16],
 }
