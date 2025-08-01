@@ -73,7 +73,7 @@ impl Camera {
         (
             Self {
                 position: point3(16., 64., 16.),
-                yaw: Rad(0.),
+                yaw: Deg(90.).into(),
                 pitch: Rad(0.),
                 buffer,
                 bind_group,

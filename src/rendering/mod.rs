@@ -1,3 +1,4 @@
+use cgmath::{point2, point3, Point2, Point3};
 use pollster::FutureExt;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,7 +16,7 @@ mod hardware;
 mod texture;
 
 // const RENDER_DISTANCE: u32 = 2;
-const CHUNK_SIZE: (u32, u32, u32) = (32, 128, 32);
+pub const CHUNK_SIZE: Point3<u32> = point3(32, 128, 32);
 
 pub struct StateApplication<'a> {
     pub state: Option<State<'a>>,
@@ -132,15 +133,15 @@ pub struct State<'a> {
     camera: camera::Camera,
     mouse_pressed: bool,
 
-    generation_setup: block::GenerationSetup,
+    seed: u32,
     textures_bind_group: wgpu::BindGroup,
-    current_chunk_position: (i32, i32),
-    chunks: HashMap<(i32, i32), Chunk>,
+    current_chunk_position: Point2<i32>,
+    chunks: HashMap<Point2<i32>, Chunk>,
 }
 
 impl<'a> State<'a> {
     // Creating some of the wgpu types requires async code
-    async fn new(window: Window, _seed: u32) -> State<'a> {
+    async fn new(window: Window, seed: u32) -> State<'a> {
         let window = Arc::new(window);
         let window_clone = window.clone();
         let (device, config, queue, surface) = hardware::init(window_clone).await;
@@ -267,7 +268,7 @@ impl<'a> State<'a> {
             });
 
         let chunk =
-            crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, (0, 0), [None; 8]);
+            crate::terrain::generate(&device, &queue, &terrain_gen_pipeline, point2(0, 0), seed);
         // queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
         let mut chunks = HashMap::new();
         chunks.insert(chunk.position, chunk);
@@ -285,8 +286,8 @@ impl<'a> State<'a> {
             textures_bind_group,
             depth_texture,
             depth_sampler,
-            generation_setup,
-            current_chunk_position: (0, 0),
+            seed,
+            current_chunk_position: point2(0, 0),
             chunks,
         }
     }
@@ -326,9 +327,7 @@ impl<'a> State<'a> {
         match button {
             MouseButton::Left => {
                 self.mouse_pressed = true;
-                self.window
-                    .set_cursor_grab(CursorGrabMode::Locked)
-                    .expect("Failed to grab cursor!");
+                let _ = self.window.set_cursor_grab(CursorGrabMode::Locked);
                 self.window.set_cursor_visible(false);
             }
             _ => {}
@@ -341,15 +340,15 @@ impl<'a> State<'a> {
 
     fn update(&mut self, dt: std::time::Duration) {
         self.camera.update_camera(dt, &self.queue);
-        let rounded_camera_position: (i32, i32) = (
+        let rounded_camera_position = point2(
             self.camera.position.x.floor() as i32,
             self.camera.position.z.floor() as i32,
         );
 
-        if rounded_camera_position.0
-            > ((self.current_chunk_position.0 + 1) * CHUNK_SIZE.0 as i32) - 1
+        if rounded_camera_position.x
+            > ((self.current_chunk_position.x + 1) * CHUNK_SIZE.x as i32) - 1
         {
-            self.current_chunk_position.0 += 1;
+            self.current_chunk_position.x += 1;
             if self.chunks.contains_key(&self.current_chunk_position) {
                 return;
             }
@@ -358,12 +357,13 @@ impl<'a> State<'a> {
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 self.current_chunk_position,
-                [None; 8],
+                self.seed,
             );
             self.chunks.insert(self.current_chunk_position, chunk);
-        } else if rounded_camera_position.0 < (self.current_chunk_position.0) * CHUNK_SIZE.0 as i32
+            println!("Woop woop!");
+        } else if rounded_camera_position.x < (self.current_chunk_position.x) * CHUNK_SIZE.x as i32
         {
-            self.current_chunk_position.0 -= 1;
+            self.current_chunk_position.x -= 1;
             if self.chunks.contains_key(&self.current_chunk_position) {
                 return;
             }
@@ -372,13 +372,13 @@ impl<'a> State<'a> {
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 self.current_chunk_position,
-                [None; 8],
+                self.seed,
             );
             self.chunks.insert(self.current_chunk_position, chunk);
-        } else if rounded_camera_position.1
-            > ((self.current_chunk_position.1 + 1) * CHUNK_SIZE.2 as i32) - 1
+        } else if rounded_camera_position.y
+            > ((self.current_chunk_position.y + 1) * CHUNK_SIZE.z as i32) - 1
         {
-            self.current_chunk_position.1 += 1;
+            self.current_chunk_position.y += 1;
             if self.chunks.contains_key(&self.current_chunk_position) {
                 return;
             }
@@ -387,12 +387,12 @@ impl<'a> State<'a> {
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 self.current_chunk_position,
-                [None; 8],
+                self.seed,
             );
             self.chunks.insert(self.current_chunk_position, chunk);
-        } else if rounded_camera_position.1 < (self.current_chunk_position.1) * CHUNK_SIZE.2 as i32
+        } else if rounded_camera_position.y < (self.current_chunk_position.y) * CHUNK_SIZE.z as i32
         {
-            self.current_chunk_position.1 -= 1;
+            self.current_chunk_position.y -= 1;
             if self.chunks.contains_key(&self.current_chunk_position) {
                 return;
             }
@@ -401,7 +401,7 @@ impl<'a> State<'a> {
                 &self.queue,
                 &self.terrain_gen_pipeline,
                 self.current_chunk_position,
-                [None; 8],
+                self.seed,
             );
             self.chunks.insert(self.current_chunk_position, chunk);
         }

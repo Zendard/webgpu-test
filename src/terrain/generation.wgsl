@@ -19,7 +19,6 @@ struct State {
     gradient_vectors: array<vec3<f32>,8>,
 }
 
-const U32_MAX:f32 = 4294967296;
 const PERLIN_NOISE_OFFSET:vec3<i32> = vec3(0, -64, 0);
 const CHUNK_SIZE:vec3<u32> = vec3(32, 128, 32);
 
@@ -36,14 +35,14 @@ fn gen_main(
     var block: u32 = 0;
 
   // Add faces
-    if !check_block(global_id_signed + vec3<i32>(0, 0, -1)) {
+    if !check_block(global_id_signed + vec3<i32>(0, 0, 1)) {
         block |= 1 << 25;
 
         let face: u32 = (index << 3) | 0;
         let face_index = atomicAdd(&state.face_amount, 1u);
         faces[face_index] = face;
     }
-    if !check_block(global_id_signed + vec3<i32>(0, 0, 1)) {
+    if !check_block(global_id_signed + vec3<i32>(0, 0, -1)) {
         block |= 1 << 24;
 
         let face: u32 = (index << 3) | 1;
@@ -102,13 +101,13 @@ fn perlin_noise(pos: vec3<i32>) -> f32 {
     let pos_float = vec3<f32>(f32(pos_adjusted.x), f32(pos_adjusted.y), f32(pos_adjusted.z));
     // Vectors to edges of chunk
     let vec_0 = normalize(-pos_float);
-    let vec_1 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), 0, 0));
+    let vec_1 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), 0, 0));
     let vec_2 = normalize(-pos_float + vec3(0, f32(CHUNK_SIZE.y), 0));
-    let vec_3 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), 0));
+    let vec_3 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), 0));
     let vec_4 = normalize(-pos_float + vec3(0, 0, f32(CHUNK_SIZE.z)));
-    let vec_5 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), 0, f32(CHUNK_SIZE.z)));
+    let vec_5 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), 0, f32(CHUNK_SIZE.z)));
     let vec_6 = normalize(-pos_float + vec3(0, f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
-    let vec_7 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
+    let vec_7 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
 
     let influence0 = dot(vec_0, state.gradient_vectors[0]);
     let influence1 = dot(vec_1, state.gradient_vectors[1]);

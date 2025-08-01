@@ -36,21 +36,21 @@ struct VertexOutput {
     @location(1) texture_id: u32,
 }
 
-const FRONT_FACE_VERTICES = array<vec3<f32>,6>(
-    vec3(0., 0., 0.),
-    vec3(0., 1., 0.),
-    vec3(1., 1., 0.),
-    vec3(0., 0., 0.),
-    vec3(1., 1., 0.),
-    vec3(1., 0., 0.),
-);
-const BACK_FACE_VERTICES= array<vec3<f32>,6>(
+const FRONT_FACE_VERTICES= array<vec3<f32>,6>(
     vec3(1., 0., 1.),
     vec3(1., 1., 1.),
     vec3(0., 1., 1.),
     vec3(1., 0., 1.),
     vec3(0., 1., 1.),
     vec3(0., 0., 1.),
+);
+const BACK_FACE_VERTICES = array<vec3<f32>,6>(
+    vec3(0., 0., 0.),
+    vec3(0., 1., 0.),
+    vec3(1., 1., 0.),
+    vec3(0., 0., 0.),
+    vec3(1., 1., 0.),
+    vec3(1., 0., 0.),
 );
 const TOP_FACE_VERTICES = array<vec3<f32>,6>(
     vec3(0., 1., 0.),
@@ -128,7 +128,7 @@ fn vs_main(@builtin(vertex_index) i: u32, @builtin(instance_index) face_index: u
       default {
             return out;
         }
-}
+    }
     let chunk_offset = vec3f(f32(state.chunk_position.x * i32(CHUNK_SIZE.x)), 0.,
         f32(state.chunk_position.y * i32(CHUNK_SIZE.z)));
     let world_pos = local_pos + vec3f(f32(face.x), f32(face.y), f32(face.z)) + chunk_offset;
@@ -138,11 +138,11 @@ fn vs_main(@builtin(vertex_index) i: u32, @builtin(instance_index) face_index: u
     out.texture_id = face.texture_id;
 
     return out;
-    //return vec4f(world_pos, 1.);
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4f {
+    /*
     switch input.texture_id{
         case 0{
             return textureSample(stone_texture, texture_sampler, input.tex_coord);
@@ -155,6 +155,31 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4f {
         }
         default{
             return vec4f(255., 0., 255., 1.);
+        }
+    }
+    */
+
+    switch input.texture_id{
+        case 0{
+            return vec4f(255., 0., 0., 1.);
+        }
+        case 1{
+            return vec4f(0., 255., 0., 1.);
+        }
+        case 2{
+            return vec4f(255., 255., 0., 1.);
+        }
+        case 3{
+            return vec4f(0., 0., 255., 1.);
+        }
+        case 4{
+            return vec4f(255., 0., 255., 1.);
+        }
+        case 5{
+            return vec4f(255., 255., 255., 1.);
+        }
+        default{
+            return vec4f(0., 0., 0., 1.);
         }
     }
 }
@@ -182,7 +207,8 @@ fn decode_face(packed: u32) -> Face {
     face.z = (linked_block >> 3u) & 0x1Fu; // 0b11111 = 5 bits
 
     // Type ID: bits 2–0
-    face.texture_id = linked_block & 0x7u; // 0b111 = 3 bits
+    //face.texture_id = linked_block & 0x7u; // 0b111 = 3 bits
+    face.texture_id = face.rotation;
 
     return face;
 }

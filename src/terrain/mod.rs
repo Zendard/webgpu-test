@@ -1,12 +1,14 @@
-use crate::rendering::block::{GenerationSetup, State};
-use cgmath::{vec3, InnerSpace, Vector3};
+use crate::rendering::{
+    block::{GenerationSetup, State},
+    CHUNK_SIZE,
+};
+use cgmath::{point3, vec3, InnerSpace, Point2, Point3, Vector3};
+use rand::Rng;
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
-    pub position: (i32, i32),
-    pub block_amount: u32,
+    pub position: Point2<i32>,
     pub face_amount: u32,
-    pub gradient_vectors: [Vector3<f32>; 8],
     pub generation_setup: GenerationSetup,
 }
 
@@ -14,22 +16,19 @@ pub fn generate(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     terrain_gen_pipeline: &wgpu::ComputePipeline,
-    chunk_position: (i32, i32),
-    gradient_vectors: [Option<Vector3<f32>>; 8],
+    chunk_position: Point2<i32>,
+    seed: u32,
 ) -> Chunk {
     let generation_setup = GenerationSetup::new(device);
     queue.write_buffer(
         &generation_setup.state_buffer,
         std::mem::offset_of!(State, chunk_position) as u64,
-        bytemuck::cast_slice(&[chunk_position.0, chunk_position.1]),
+        bytemuck::cast_slice(&[chunk_position.x, chunk_position.y]),
     );
     println!("Generating and copying gradient vectors...");
-    let gradient_vectors =
-        copy_gradient_vectors(queue, &generation_setup.state_buffer, gradient_vectors);
+    copy_gradient_vectors(queue, &generation_setup.state_buffer, seed, chunk_position);
     println!("Dispatching terrain generation...");
-    unsafe {
-        device.start_graphics_debugger_capture();
-    }
+
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Terrain gen Encoder"),
     });
@@ -71,9 +70,7 @@ pub fn generate(
     println!("Done");
     Chunk {
         position: chunk_position,
-        block_amount: result.block_amount,
         face_amount: result.face_amount,
-        gradient_vectors,
         generation_setup,
     }
 }
@@ -81,30 +78,125 @@ pub fn generate(
 fn copy_gradient_vectors(
     queue: &wgpu::Queue,
     state_buffer: &wgpu::Buffer,
-    gradient_vectors: [Option<Vector3<f32>>; 8],
-) -> [Vector3<f32>; 8] {
-    let all_vectors: [Vector3<f32>; 8] =
-        std::array::from_fn(|i| gradient_vectors[i].unwrap_or_else(random_unit_vec3));
-    let raw_vectors: [f32; 24] = std::array::from_fn(|i| all_vectors[i / 3].as_slice()[i % 3]);
-
+    seed: u32,
+    chunk_position: Point2<i32>,
+) {
+    let flat_vectors: Vec<f32> = [
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32,
+                0,
+                chunk_position.y * CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32 + CHUNK_SIZE.x as i32,
+                0,
+                chunk_position.y * CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32,
+                CHUNK_SIZE.y as i32,
+                chunk_position.y * CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32 + CHUNK_SIZE.x as i32,
+                CHUNK_SIZE.y as i32,
+                chunk_position.y * CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32,
+                0,
+                chunk_position.y * CHUNK_SIZE.z as i32 + CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32 + CHUNK_SIZE.x as i32,
+                0,
+                chunk_position.y * CHUNK_SIZE.z as i32 + CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32,
+                CHUNK_SIZE.y as i32,
+                chunk_position.y * CHUNK_SIZE.z as i32 + CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+        random_unit_vec3(
+            point3(
+                chunk_position.x * CHUNK_SIZE.x as i32 + CHUNK_SIZE.x as i32,
+                CHUNK_SIZE.y as i32,
+                chunk_position.y * CHUNK_SIZE.z as i32 + CHUNK_SIZE.z as i32,
+            ),
+            seed,
+        ),
+    ]
+    .iter()
+    .flat_map(|vec3| [vec3.x, vec3.y, vec3.z])
+    .collect();
     queue.write_buffer(
         state_buffer,
         std::mem::offset_of!(State, gradient_vectors) as u64,
-        bytemuck::cast_slice(&raw_vectors),
+        bytemuck::cast_slice(&flat_vectors),
     );
-    all_vectors
 }
 
-fn random_unit_vec3() -> Vector3<f32> {
-    let vector: Vector3<f32> = vec3(rand::random(), rand::random(), rand::random());
+fn random_unit_vec3(position: Point3<i32>, seed: u32) -> Vector3<f32> {
+    let seed_bytes = seed.to_le_bytes();
+    let position_x_bytes = position.x.to_le_bytes();
+    let position_y_bytes = position.y.to_le_bytes();
+    let position_z_bytes = position.z.to_le_bytes();
+    let seed_with_offset: [u8; 32] = [
+        seed_bytes[0],
+        seed_bytes[1],
+        seed_bytes[2],
+        seed_bytes[3],
+        position_x_bytes[0],
+        position_x_bytes[1],
+        position_x_bytes[2],
+        position_x_bytes[3],
+        position_y_bytes[0],
+        position_y_bytes[1],
+        position_y_bytes[2],
+        position_y_bytes[3],
+        position_z_bytes[0],
+        position_z_bytes[1],
+        position_z_bytes[2],
+        position_z_bytes[3],
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ];
+    let mut rng = <rand::rngs::SmallRng as rand::SeedableRng>::from_seed(seed_with_offset);
+    let vector: Vector3<f32> = vec3(rng.random(), rng.random(), rng.random());
     vector.normalize()
-}
-
-trait AsF32Slice {
-    fn as_slice(&self) -> [f32; 3];
-}
-impl AsF32Slice for Vector3<f32> {
-    fn as_slice(&self) -> [f32; 3] {
-        [self.x, self.y, self.z]
-    }
 }
