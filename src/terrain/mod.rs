@@ -1,3 +1,5 @@
+use std::hash::Hasher;
+
 use crate::rendering::{
     block::{GenerationSetup, State},
     CHUNK_SIZE,
@@ -158,45 +160,13 @@ fn copy_gradient_vectors(
 }
 
 fn random_unit_vec3(position: Point3<i32>, seed: u32) -> Vector3<f32> {
-    let seed_bytes = seed.to_le_bytes();
-    let position_x_bytes = position.x.to_le_bytes();
-    let position_y_bytes = position.y.to_le_bytes();
-    let position_z_bytes = position.z.to_le_bytes();
-    let seed_with_offset: [u8; 32] = [
-        seed_bytes[0],
-        seed_bytes[1],
-        seed_bytes[2],
-        seed_bytes[3],
-        position_x_bytes[0],
-        position_x_bytes[1],
-        position_x_bytes[2],
-        position_x_bytes[3],
-        position_y_bytes[0],
-        position_y_bytes[1],
-        position_y_bytes[2],
-        position_y_bytes[3],
-        position_z_bytes[0],
-        position_z_bytes[1],
-        position_z_bytes[2],
-        position_z_bytes[3],
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ];
-    let mut rng = <rand::rngs::SmallRng as rand::SeedableRng>::from_seed(seed_with_offset);
+    let mut hasher = std::hash::DefaultHasher::new();
+    hasher.write_u32(seed);
+    hasher.write_i32(position.x);
+    hasher.write_i32(position.y);
+    hasher.write_i32(position.z);
+    let hash = hasher.finish();
+    let mut rng = <rand::rngs::SmallRng as rand::SeedableRng>::seed_from_u64(hash);
     let vector: Vector3<f32> = vec3(rng.random(), rng.random(), rng.random());
     vector.normalize()
 }

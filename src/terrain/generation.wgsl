@@ -26,7 +26,7 @@ const CHUNK_SIZE:vec3<u32> = vec3(32, 128, 32);
 fn gen_main(
     @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
-    let global_id_signed = vec3<i32>(global_id);
+    let global_id_signed = vec3<i32>(global_id)+vec3(-1,0,0);
   // Return if the block doesn't exist
     if !check_block(global_id_signed) {
         return;
@@ -35,21 +35,22 @@ fn gen_main(
     var block: u32 = 0;
 
   // Add faces
-    if !check_block(global_id_signed + vec3<i32>(0, 0, 1)) {
+    if !check_block(global_id_signed + vec3<i32>(0, 0, -1))||global_id_signed.z==0 {
         block |= 1 << 25;
 
         let face: u32 = (index << 3) | 0;
         let face_index = atomicAdd(&state.face_amount, 1u);
         faces[face_index] = face;
     }
-    if !check_block(global_id_signed + vec3<i32>(0, 0, -1)) {
+    if !check_block(global_id_signed + vec3<i32>(0, 0, 1)) || global_id_signed.z ==
+  i32(CHUNK_SIZE.z)-1{
         block |= 1 << 24;
 
         let face: u32 = (index << 3) | 1;
         let face_index = atomicAdd(&state.face_amount, 1u);
         faces[face_index] = face;
     }
-    if !check_block(global_id_signed + vec3<i32>(0, 1, 0)) {
+    if !check_block(global_id_signed + vec3<i32>(0, 1, 0)) || global_id_signed.y == i32(CHUNK_SIZE.y)-1{
         block |= 1 << 23;
         block |= 2; // Add moss texture
 
@@ -59,21 +60,21 @@ fn gen_main(
     } else if !check_block(global_id_signed + vec3<i32>(0, 3, 0)) {
         block |= 1; // Add dirt texture
     }
-    if !check_block(global_id_signed + vec3<i32>(0, -1, 0)) {
+    if !check_block(global_id_signed + vec3<i32>(0, -1, 0)) || global_id_signed.y ==0{
         block |= 1 << 22;
 
         let face: u32 = (index << 3) | 3;
         let face_index = atomicAdd(&state.face_amount, 1u);
         faces[face_index] = face;
     }
-    if !check_block(global_id_signed + vec3<i32>(-1, 0, 0)) {
+    if !check_block(global_id_signed + vec3<i32>(-1, 0, 0)) || global_id_signed.x ==0{
         block |= 1 << 21;
 
         let face: u32 = (index << 3) | 4;
         let face_index = atomicAdd(&state.face_amount, 1u);
         faces[face_index] = face;
     }
-    if !check_block(global_id_signed + vec3<i32>(1, 0, 0)) {
+    if !check_block(global_id_signed + vec3<i32>(1, 0, 0)) || global_id_signed.x == i32(CHUNK_SIZE.x)-1{
         block |= 1 << 20;
 
         let face: u32 = (index << 3) | 5;
@@ -101,13 +102,13 @@ fn perlin_noise(pos: vec3<i32>) -> f32 {
     let pos_float = vec3<f32>(f32(pos_adjusted.x), f32(pos_adjusted.y), f32(pos_adjusted.z));
     // Vectors to edges of chunk
     let vec_0 = normalize(-pos_float);
-    let vec_1 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), 0, 0));
+    let vec_1 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), 0, 0));
     let vec_2 = normalize(-pos_float + vec3(0, f32(CHUNK_SIZE.y), 0));
-    let vec_3 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), 0));
+    let vec_3 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), 0));
     let vec_4 = normalize(-pos_float + vec3(0, 0, f32(CHUNK_SIZE.z)));
-    let vec_5 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), 0, f32(CHUNK_SIZE.z)));
+    let vec_5 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), 0, f32(CHUNK_SIZE.z)));
     let vec_6 = normalize(-pos_float + vec3(0, f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
-    let vec_7 = normalize(-pos_float + vec3(-f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
+    let vec_7 = normalize(-pos_float + vec3(f32(CHUNK_SIZE.x), f32(CHUNK_SIZE.y), f32(CHUNK_SIZE.z)));
 
     let influence0 = dot(vec_0, state.gradient_vectors[0]);
     let influence1 = dot(vec_1, state.gradient_vectors[1]);
@@ -118,9 +119,9 @@ fn perlin_noise(pos: vec3<i32>) -> f32 {
     let influence6 = dot(vec_6, state.gradient_vectors[6]);
     let influence7 = dot(vec_7, state.gradient_vectors[7]);
 
-    let x_weight = pos_float.x / f32(CHUNK_SIZE.x);
-    let y_weight = pos_float.y / f32(CHUNK_SIZE.y);
-    let z_weight = pos_float.z / f32(CHUNK_SIZE.z);
+    let x_weight = fade(pos_float.x / f32(CHUNK_SIZE.x));
+    let y_weight = fade(pos_float.y / f32(CHUNK_SIZE.y));
+    let z_weight = fade(pos_float.z / f32(CHUNK_SIZE.z));
 
     let avg_01 = lerp(influence0, influence1, x_weight);
     let avg_23 = lerp(influence2, influence3, x_weight);
@@ -133,6 +134,10 @@ fn perlin_noise(pos: vec3<i32>) -> f32 {
     let avg = lerp(avg_0123, avg_4567, z_weight);
 
     return avg;
+}
+
+fn fade(t: f32) -> f32 {
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
 }
 
 fn lerp(value_1: f32, value_2: f32, weight: f32) -> f32 {

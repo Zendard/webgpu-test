@@ -36,21 +36,21 @@ struct VertexOutput {
     @location(1) texture_id: u32,
 }
 
-const FRONT_FACE_VERTICES= array<vec3<f32>,6>(
-    vec3(1., 0., 1.),
-    vec3(1., 1., 1.),
-    vec3(0., 1., 1.),
-    vec3(1., 0., 1.),
-    vec3(0., 1., 1.),
-    vec3(0., 0., 1.),
-);
-const BACK_FACE_VERTICES = array<vec3<f32>,6>(
+const FRONT_FACE_VERTICES = array<vec3<f32>,6>(
     vec3(0., 0., 0.),
     vec3(0., 1., 0.),
     vec3(1., 1., 0.),
     vec3(0., 0., 0.),
     vec3(1., 1., 0.),
     vec3(1., 0., 0.),
+);
+const BACK_FACE_VERTICES= array<vec3<f32>,6>(
+    vec3(1., 0., 1.),
+    vec3(1., 1., 1.),
+    vec3(0., 1., 1.),
+    vec3(1., 0., 1.),
+    vec3(0., 1., 1.),
+    vec3(0., 0., 1.),
 );
 const TOP_FACE_VERTICES = array<vec3<f32>,6>(
     vec3(0., 1., 0.),
