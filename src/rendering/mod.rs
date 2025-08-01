@@ -272,6 +272,7 @@ impl<'a> State<'a> {
             &terrain_gen_pipeline,
             &generation_setup,
             (0, 0),
+            [None; 8],
         );
         // queue.write_buffer(&block_buffer, 0, bytemuck::cast_slice(&[[0, 0, 0]]));
 
@@ -358,6 +359,7 @@ impl<'a> State<'a> {
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
                 self.current_chunk,
+                [None; 8],
             );
         } else if rounded_camera_position.0 < (self.current_chunk.0) * CHUNK_SIZE.0 as i32 {
             self.current_chunk.0 -= 1;
@@ -367,6 +369,7 @@ impl<'a> State<'a> {
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
                 self.current_chunk,
+                [None; 8],
             );
         } else if rounded_camera_position.1 > ((self.current_chunk.1 + 1) * CHUNK_SIZE.2 as i32) - 1
         {
@@ -377,6 +380,7 @@ impl<'a> State<'a> {
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
                 self.current_chunk,
+                [None; 8],
             );
         } else if rounded_camera_position.1 < (self.current_chunk.1) * CHUNK_SIZE.2 as i32 {
             self.current_chunk.1 -= 1;
@@ -386,6 +390,7 @@ impl<'a> State<'a> {
                 &self.terrain_gen_pipeline,
                 &self.generation_setup,
                 self.current_chunk,
+                [None; 8],
             );
         }
     }
